@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Bookings | Lekki Suites Admin{% endblock %}
+
+{% block content %}
+
+    <!-- ===== PAGE HEADER ===== -->
+    <section class="page-hero">
+        <h1>Bookings</h1>
+        <p>All booking tickets, newest first.</p>
+    </section>
+
+    <!-- ===== BOOKINGS TABLE ===== -->
+    <section class="admin">
+        <div class="container">
+            <div class="admin-bar">
+                <a href="{{ url_for('ticket') }}" class="btn-gold">Check Ticket</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
+            </div>
+
+            {% if rows %}
+                <div class="table-wrap">
+                    <table class="bookings-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Name</th>
+                                <th>Phone</th>
+                                <th>Room</th>
+                                <th>Check-in</th>
+                                <th>Check-out</th>
+                                <th>Guests</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for b, cls, label in rows %}
+                            <tr>
+                                <td><strong>{{ b.ticket_id }}</strong></td>
+                                <td>{{ b.name }}</td>
+                                <td>{{ b.phone }}</td>
+                                <td>{{ b.room_type }}</td>
+                                <td>{{ b.check_in }}</td>
+                                <td>{{ b.check_out }}</td>
+                                <td>{{ b.guests }}</td>
+                                <td><span class="status-badge status-{{ cls }}">{{ label }}</span></td>
+                                <td>
+                                    {% if b.status != 'Confirmed' %}
+                                    <form method="POST" action="{{ url_for('admin_confirm', booking_id=b.id) }}" style="display:inline;">
+                                        <button type="submit" class="btn-confirm">Mark Paid</button>
+                                    </form>
+                                    {% else %}
+                                        <span class="confirmed-mark">&#10003; Paid</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="section-sub">No bookings yet. New requests will appear here.</p>
+            {% endif %}
+        </div>
+    </section>
+
+{% endblock %}

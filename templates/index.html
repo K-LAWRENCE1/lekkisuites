@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+    <!-- ===== HERO SECTION ===== -->
+    <section class="hero" id="home">
+        <video class="hero-video" autoplay loop muted playsinline>
+            <source src="{{ url_for('static', filename='hotel.mp4') }}" type="video/mp4">
+        </video>
+        <button id="sound-toggle" class="sound-btn" type="button">&#128263;</button>
+        <div class="hero-content">
+            <h1>Welcome to Lekki Suites</h1>
+            <p>Luxury &amp; Comfort in the Heart of Lekki, Lagos</p>
+            <div class="hero-buttons">
+                <a href="{{ url_for('book') }}" class="btn-primary">Book Your Stay</a>
+                <a href="{{ url_for('rooms') }}" class="btn-secondary">Explore Rooms</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== WELCOME / ABOUT ===== -->
+    <section class="welcome">
+        <div class="container">
+            <h2>Where Comfort Meets Elegance</h2>
+            <p>
+                Lekki Suites offers a refined hospitality experience in one of Lagos's
+                most vibrant districts. Whether you're here for business or leisure,
+                our attentive staff, modern amenities, and serene atmosphere make
+                every stay memorable.
+            </p>
+        </div>
+    </section>
+
+    <!-- ===== EXPLORE ===== -->
+    <section class="rooms">
+        <div class="container">
+            <h2>Explore Lekki Suites</h2>
+            <p class="section-sub">Discover everything we have to offer.</p>
+            <div class="room-grid">
+                <a href="{{ url_for('rooms') }}" class="room-card">
+                    <div class="room-img standard"></div>
+                    <div class="room-info">
+                        <h3>Rooms &amp; Suites</h3>
+                        <p>Comfortable, elegant accommodations for every guest.</p>
+                    </div>
+                </a>
+                <a href="{{ url_for('amenities') }}" class="room-card">
+                    <div class="room-img deluxe"></div>
+                    <div class="room-info">
+                        <h3>Amenities</h3>
+                        <p>Everything you need for a relaxing stay.</p>
+                    </div>
+                </a>
+                <a href="{{ url_for('dining') }}" class="room-card">
+                    <div class="room-img suite"></div>
+                    <div class="room-info">
+                        <h3>Dining</h3>
+                        <p>Local and international cuisine by our chefs.</p>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </section>
+
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        const heroVideo = document.querySelector('.hero-video');
+        const soundBtn = document.getElementById('sound-toggle');
+        soundBtn.addEventListener('click', function () {
+            heroVideo.muted = !heroVideo.muted;
+            soundBtn.innerHTML = heroVideo.muted ? '&#128263;' : '&#128266;';
+        });
+    </script>
+{% endblock %}
