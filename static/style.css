@@ -80,31 +80,28 @@ body {
 .hero {
     position: relative;
     overflow: hidden;
-    background: #0f1c2e;
     color: #fff;
     text-align: center;
-    padding: 130px 20px;
+    padding: 150px 20px 130px;
+    background:
+        radial-gradient(ellipse at 50% 38%, rgba(201, 162, 39, 0.20), transparent 62%),
+        linear-gradient(135deg, #08121f 0%, #0f1c2e 50%, #14283f 100%);
 }
 
-.hero-video {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    z-index: 1;
-}
-
+/* soft animated gold glow behind the title */
 .hero::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(to bottom, rgba(15, 28, 46, 0.2), rgba(15, 28, 46, 0.45));
-    z-index: 2;
+    inset: 0;
+    background: radial-gradient(circle at 50% 42%, rgba(201, 162, 39, 0.14), transparent 50%);
+    animation: heroGlow 7s ease-in-out infinite alternate;
+    z-index: 1;
+    pointer-events: none;
+}
+
+@keyframes heroGlow {
+    from { opacity: 0.45; }
+    to   { opacity: 1; }
 }
 
 .hero-content {
@@ -112,41 +109,45 @@ body {
     z-index: 3;
 }
 
-.sound-btn {
-    position: absolute;
-    bottom: 22px;
-    right: 22px;
-    z-index: 4;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: #fff;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    font-size: 20px;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-    transition: background 0.2s;
+/* gold divider ornament */
+.hero-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 30px;
 }
 
-.sound-btn:hover {
-    background: rgba(255, 255, 255, 0.35);
+.hero-divider span {
+    display: block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c9a227;
+    box-shadow: 0 0 8px rgba(201, 162, 39, 0.7);
+}
+
+.hero-divider span:nth-child(2) {
+    width: 70px;
+    height: 2px;
+    border-radius: 2px;
 }
 
 .hero h1 {
     font-family: "Great Vibes", cursive;
-    font-size: 60px;
+    font-size: 64px;
     font-weight: normal;
-    color: rgba(255, 255, 255, 0.6);
-    margin-bottom: 15px;
-    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+    color: #fff;
+    margin-bottom: 14px;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
 }
 
 .hero p {
     font-size: 20px;
-    margin-bottom: 30px;
+    margin-bottom: 22px;
     color: #e8d9a8;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+    letter-spacing: 1px;
 }
 
 .hero-buttons a {
@@ -668,6 +669,67 @@ h2 {
     background: #fff8e6;
 }
 
+/* --- Admin dashboard stats --- */
+.stats-grid {
+    max-width: 1000px;
+    margin: 0 auto 28px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+}
+
+.stat-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 18px 10px;
+    text-align: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+    border-top: 4px solid #c9a227;
+}
+
+.stat-num {
+    display: block;
+    font-size: 22px;
+    font-weight: bold;
+    color: #0f1c2e;
+    margin-bottom: 4px;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: #777;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-card.stat-pending { border-top-color: #f0ad4e; }
+.stat-card.stat-active { border-top-color: #25D366; }
+.stat-card.stat-upcoming { border-top-color: #5bc0de; }
+.stat-card.stat-expired { border-top-color: #999; }
+.stat-card.stat-revenue { border-top-color: #c9a227; }
+
+.admin-search {
+    max-width: 1000px;
+    margin: 0 auto 24px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.admin-search input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 15px;
+    font-family: inherit;
+}
+
+.admin-search input:focus {
+    outline: none;
+    border-color: #c9a227;
+}
+
 /* --- Ticket --- */
 .ticket {
     max-width: 640px;
@@ -912,6 +974,20 @@ h2 {
     color: #888;
 }
 
+.map-embed {
+    height: 280px;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.map-embed iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}
+
 /* --- Footer --- */
 .footer {
     background: #0a1626;
@@ -1065,5 +1141,13 @@ h2 {
 
     .ticket-grid {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .admin-search {
+        flex-wrap: wrap;
     }
 }

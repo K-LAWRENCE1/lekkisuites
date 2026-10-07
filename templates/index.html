@@ -4,13 +4,12 @@
 
     <!-- ===== HERO SECTION ===== -->
     <section class="hero" id="home">
-        <video class="hero-video" autoplay loop muted playsinline>
-            <source src="{{ url_for('static', filename='hotel.mp4') }}" type="video/mp4">
-        </video>
-        <button id="sound-toggle" class="sound-btn" type="button">&#128263;</button>
         <div class="hero-content">
             <h1>Welcome to Lekki Suites</h1>
             <p>Luxury &amp; Comfort in the Heart of Lekki, Lagos</p>
+            <div class="hero-divider" aria-hidden="true">
+                <span></span><span></span><span></span>
+            </div>
             <div class="hero-buttons">
                 <a href="{{ url_for('book') }}" class="btn-primary">Book Your Stay</a>
                 <a href="{{ url_for('rooms') }}" class="btn-secondary">Explore Rooms</a>
@@ -64,13 +63,4 @@
 
 {% endblock %}
 
-{% block scripts %}
-    <script>
-        const heroVideo = document.querySelector('.hero-video');
-        const soundBtn = document.getElementById('sound-toggle');
-        soundBtn.addEventListener('click', function () {
-            heroVideo.muted = !heroVideo.muted;
-            soundBtn.innerHTML = heroVideo.muted ? '&#128263;' : '&#128266;';
-        });
-    </script>
-{% endblock %}
+{% block scripts %}{% endblock %}

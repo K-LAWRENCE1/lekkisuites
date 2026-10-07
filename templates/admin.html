@@ -9,13 +9,48 @@
         <p>All booking tickets, newest first.</p>
     </section>
 
-    <!-- ===== BOOKINGS TABLE ===== -->
+    <!-- ===== ADMIN PANEL ===== -->
     <section class="admin">
         <div class="container">
             <div class="admin-bar">
                 <a href="{{ url_for('ticket') }}" class="btn-gold">Check Ticket</a>
                 <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
             </div>
+
+            <!-- ===== STATS DASHBOARD ===== -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-num">{{ stats.total }}</span>
+                    <span class="stat-label">Total Bookings</span>
+                </div>
+                <div class="stat-card stat-revenue">
+                    <span class="stat-num">&#8358;{{ "{:,}".format(stats.revenue) }}</span>
+                    <span class="stat-label">Revenue (Paid)</span>
+                </div>
+                <div class="stat-card stat-pending">
+                    <span class="stat-num">{{ stats.pending }}</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+                <div class="stat-card stat-active">
+                    <span class="stat-num">{{ stats.active }}</span>
+                    <span class="stat-label">Active</span>
+                </div>
+                <div class="stat-card stat-upcoming">
+                    <span class="stat-num">{{ stats.upcoming }}</span>
+                    <span class="stat-label">Upcoming</span>
+                </div>
+                <div class="stat-card stat-expired">
+                    <span class="stat-num">{{ stats.expired }}</span>
+                    <span class="stat-label">Expired</span>
+                </div>
+            </div>
+
+            <!-- ===== SEARCH ===== -->
+            <form method="GET" action="{{ url_for('admin') }}" class="admin-search">
+                <input type="text" name="q" value="{{ q }}" placeholder="Search by name or ticket number...">
+                <button type="submit" class="btn-gold">Search</button>
+                {% if q %}<a href="{{ url_for('admin') }}" class="btn-gold btn-outline">Clear</a>{% endif %}
+            </form>
 
             {% if rows %}
                 <div class="table-wrap">
@@ -59,7 +94,11 @@
                     </table>
                 </div>
             {% else %}
-                <p class="section-sub">No bookings yet. New requests will appear here.</p>
+                {% if q %}
+                    <p class="section-sub">No bookings match "{{ q }}". <a href="{{ url_for('admin') }}">Clear search</a></p>
+                {% else %}
+                    <p class="section-sub">No bookings yet. New requests will appear here.</p>
+                {% endif %}
             {% endif %}
         </div>
     </section>

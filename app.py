@@ -24,6 +24,13 @@ PAYMENT = {
     "whatsapp": "2348092299428",
 }
 
+# --- Room prices (per night), used to estimate revenue ---
+ROOM_PRICES = {
+    "Standard Room": 25000,
+    "Deluxe Room": 45000,
+    "Executive Suite": 80000,
+}
+
 
 def get_db():
     conn = sqlite3.connect(DB_NAME)
@@ -230,15 +237,57 @@ def admin():
     if not session.get("admin_logged_in"):
         return render_template("admin_login.html")
 
-    # Logged in - show all bookings, newest first, with their display status.
+    # Optional search (by name or ticket number).
+    q = request.args.get("q", "").strip().lower()
+
     conn = get_db()
     bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
     conn.close()
-    rows = []
+
+    # --- Compute dashboard stats ---
+    today = date.today()
+    total = len(bookings)
+    pending = confirmed = active = upcoming = expired = 0
+    revenue = 0
     for b in bookings:
         cls, label = ticket_display(b)
+        if cls == "pending":
+            pending += 1
+        elif cls == "active":
+            active += 1
+            confirmed += 1
+        elif cls == "upcoming":
+            upcoming += 1
+            confirmed += 1
+        elif cls == "expired":
+            expired += 1
+            confirmed += 1
+        # Revenue from paid (Confirmed) bookings.
+        if b["status"] == "Confirmed":
+            try:
+                nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+            except (ValueError, TypeError):
+                nights = 0
+            revenue += ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+
+    # --- Filter rows by the search query ---
+    rows = []
+    for b in bookings:
+        if q and q not in (b["name"] or "").lower() and q not in (b["ticket_id"] or "").lower():
+            continue
+        cls, label = ticket_display(b)
         rows.append((b, cls, label))
-    return render_template("admin.html", rows=rows)
+
+    stats = {
+        "total": total,
+        "pending": pending,
+        "confirmed": confirmed,
+        "active": active,
+        "upcoming": upcoming,
+        "expired": expired,
+        "revenue": revenue,
+    }
+    return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""))
 
 
 # Mark a booking as paid / confirmed.
