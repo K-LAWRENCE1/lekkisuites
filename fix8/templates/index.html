@@ -4,11 +4,10 @@
 
     <!-- ===== HERO SECTION ===== -->
     <section class="hero" id="home">
-        <!-- Background hotel video (the "ad") -->
-        <video class="hero-video" autoplay muted loop playsinline id="heroVideo">
+        <!-- Background hotel video (the homepage ad) -->
+        <video class="hero-video" autoplay muted loop playsinline poster="{{ url_for('static', filename='bar_lounge.jpeg') }}" id="heroVideo">
             <source src="{{ url_for('static', filename='hotel.mp4') }}" type="video/mp4">
         </video>
-        <!-- Sound toggle button -->
         <button class="hero-sound" id="heroSound" type="button" aria-label="Toggle sound">&#128264;</button>
         <div class="hero-content">
             <div class="hero-logo">
