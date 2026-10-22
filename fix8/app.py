@@ -12,6 +12,9 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 app = Flask(__name__)
 app.secret_key = "lekkisuites-secret-2026"
 
+# Let the browser cache images/video for a day, so the 3MB ad is not re-downloaded every visit.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
+
 
 # --- Database helper ---
 # We store every booking and food order in a small SQLite database file (bookings.db).
