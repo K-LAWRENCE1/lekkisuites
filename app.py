@@ -2,6 +2,7 @@
 # This is the main Flask application file.
 # Flask is a lightweight web framework that lets us serve web pages.
 
+import json
 import sqlite3
 from datetime import datetime, date
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -12,7 +13,7 @@ app.secret_key = "lekkisuites-secret-2026"
 
 
 # --- Database helper ---
-# We store every booking in a small SQLite database file (bookings.db).
+# We store every booking and food order in a small SQLite database file (bookings.db).
 DB_NAME = "bookings.db"
 
 
@@ -32,6 +33,127 @@ ROOM_PRICES = {
 }
 
 
+# ===== ROOM SERVICE MENU =====
+# Every dish the kitchen serves, with prices in Naira.
+# Each item gets a stable id so the cart can track it.
+MENU = [
+    {
+        "section": "Rice Dishes",
+        "category": "food",
+        "dishes": [
+            {"id": "jollof_turkey",   "name": "Jollof Rice & Turkey",      "price": 8000},
+            {"id": "white_beef",      "name": "White Rice & Beef",          "price": 4000},
+            {"id": "white_chicken",   "name": "White Rice & Chicken",       "price": 6000},
+            {"id": "white_goat",      "name": "White Rice & Goat Meat",     "price": 6500},
+            {"id": "white_turkey",     "name": "White Rice & Turkey",        "price": 8000},
+        ],
+    },
+    {
+        "section": "Pepper Soups",
+        "category": "food",
+        "dishes": [
+            {"id": "ps_beef",     "name": "Beef Pepper Soup",      "price": 3000},
+            {"id": "ps_chicken",  "name": "Chicken Pepper Soup",   "price": 5000},
+            {"id": "ps_goat",     "name": "Goat Meat Pepper Soup", "price": 5500},
+            {"id": "ps_assorted", "name": "Assorted Pepper Soup",  "price": 5000},
+            {"id": "ps_turkey",   "name": "Turkey Pepper Soup",    "price": 7000},
+        ],
+    },
+    {
+        "section": "Pepper Soup & Yam",
+        "category": "food",
+        "dishes": [
+            {"id": "psy_beef",     "name": "Beef Pepper Soup & Yam",       "price": 6000},
+            {"id": "psy_chicken",  "name": "Chicken Pepper Soup & Yam",    "price": 8000},
+            {"id": "psy_goat",     "name": "Goat Meat Pepper Soup & Yam",  "price": 8500},
+            {"id": "psy_assorted", "name": "Assorted Pepper Soup & Yam",   "price": 8000},
+            {"id": "psy_turkey",   "name": "Turkey Pepper Soup & Yam",     "price": 10000},
+        ],
+    },
+    {
+        "section": "Peppered Meat",
+        "category": "food",
+        "dishes": [
+            {"id": "pm_beef",     "name": "Pepper Beef",        "price": 2000},
+            {"id": "pm_chicken",  "name": "Pepper Chicken",    "price": 4000},
+            {"id": "pm_goat",     "name": "Pepper Goat Meat",  "price": 4500},
+            {"id": "pm_assorted", "name": "Pepper Assorted",   "price": 4000},
+            {"id": "pm_turkey",   "name": "Pepper Turkey",     "price": 6000},
+            {"id": "pm_yam",      "name": "Yam Pottage",         "price": 5000},
+        ],
+    },
+    {
+        "section": "Soups (served with Eba, Semo or Poundo)",
+        "category": "food",
+        "dishes": [
+            {"id": "obg_beef",     "name": "Ogbono with Beef",                "price": 6000},
+            {"id": "obg_chicken",  "name": "Ogbono with Chicken",             "price": 8000},
+            {"id": "obg_goat",     "name": "Ogbono with Goat Meat / Assorted","price": 8500},
+            {"id": "obg_turkey",   "name": "Ogbono with Turkey",              "price": 10000},
+            {"id": "eg_beef",      "name": "Egusi with Beef",                  "price": 6000},
+            {"id": "eg_chicken",   "name": "Egusi with Chicken",               "price": 8000},
+            {"id": "eg_goat",      "name": "Egusi with Goat Meat / Assorted",  "price": 8500},
+            {"id": "eg_turkey",    "name": "Egusi with Turkey",               "price": 10000},
+            {"id": "af_beef",      "name": "Afang with Beef",                   "price": 6500},
+            {"id": "af_chicken",   "name": "Afang with Chicken",                "price": 8500},
+            {"id": "af_goat",      "name": "Afang with Goat Meat",              "price": 9000},
+            {"id": "af_turkey",    "name": "Afang with Turkey",                 "price": 10500},
+            {"id": "swallow_only", "name": "Eba / Semo / Poundo only",          "price": 1000},
+        ],
+    },
+    {
+        "section": "Water",
+        "category": "bar",
+        "dishes": [
+            {"id": "w_table",  "name": "Table Water 75cl", "price": 500},
+        ],
+    },
+    {
+        "section": "Beer",
+        "category": "bar",
+        "dishes": [
+            {"id": "b_heineken",  "name": "Heineken",       "price": 3000},
+            {"id": "b_bigstout",  "name": "Big Stout",      "price": 3000},
+            {"id": "b_bud",       "name": "Budweiser",      "price": 3000},
+            {"id": "b_orijin",    "name": "Orijin Bitters", "price": 2500},
+            {"id": "b_guilder",   "name": "Guilder",        "price": 2500},
+            {"id": "b_goldberg",  "name": "Goldberg",       "price": 2000},
+            {"id": "b_trophy",    "name": "Trophy",         "price": 2000},
+            {"id": "b_smallstout","name": "Small Stout",    "price": 2000},
+            {"id": "b_smirnoff",  "name": "Smirnoff Ice",   "price": 2000},
+            {"id": "b_radler",    "name": "Star Radler",    "price": 2000},
+            {"id": "b_desperado", "name": "Desperado",      "price": 2000},
+            {"id": "b_star",      "name": "Star",           "price": 2000},
+            {"id": "b_33",        "name": '"33"',           "price": 2000},
+        ],
+    },
+    {
+        "section": "Energy Drinks",
+        "category": "bar",
+        "dishes": [
+            {"id": "e_monster", "name": "Monster", "price": 3000},
+            {"id": "e_redbull", "name": "Redbull",  "price": 4000},
+            {"id": "e_bullet",  "name": "Bullet",   "price": 3000},
+        ],
+    },
+    {
+        "section": "Juice",
+        "category": "bar",
+        "dishes": [
+            {"id": "j_chivita",  "name": "Chivita",  "price": 4000},
+            {"id": "j_exotic",   "name": "Exotic",   "price": 4000},
+            {"id": "j_hollandia","name": "Hollandia","price": 4500},
+        ],
+    },
+]
+
+# Quick lookup: id -> item dict, so the cart can find items fast.
+MENU_BY_ID = {}
+for _section in MENU:
+    for _item in _section["dishes"]:
+        MENU_BY_ID[_item["id"]] = _item
+
+
 def get_db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row  # lets us access columns by name
@@ -39,7 +161,7 @@ def get_db():
 
 
 def init_db():
-    """Create the bookings table if it does not exist, and upgrade old ones."""
+    """Create the bookings + food_orders tables if they do not exist, and upgrade old ones."""
     conn = get_db()
     conn.execute(
         """
@@ -65,12 +187,59 @@ def init_db():
         conn.execute("ALTER TABLE bookings ADD COLUMN ticket_id TEXT")
     if "status" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'Pending'")
+
+    # --- Food orders table (room service) ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS food_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_ref TEXT NOT NULL,
+            guest_name TEXT NOT NULL,
+            room_number TEXT NOT NULL,
+            phone TEXT,
+            items TEXT NOT NULL,
+            total INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            payment_status TEXT NOT NULL DEFAULT 'Pending',
+            order_status TEXT NOT NULL DEFAULT 'New',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # --- Activity log table (history of everything) ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            logged_at TEXT NOT NULL,
+            category TEXT NOT NULL,
+            event TEXT NOT NULL,
+            ref TEXT,
+            detail TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
 
-# Create / upgrade the table once when the app starts.
+# Create / upgrade the tables once when the app starts.
 init_db()
+
+
+def log_activity(category, event, ref, detail):
+    """Record an event in the activity log."""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO activity_log (logged_at, category, event, ref, detail) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().strftime("%Y-%m-%d %H:%M"), category, event, ref, detail),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def ticket_display(b):
@@ -98,6 +267,52 @@ def ticket_display(b):
     return ("active", "Valid")
 
 
+# ===== HELPERS FOR THE CART =====
+
+def get_cart():
+    """Return the current cart as a list of {id, name, price, qty}.
+
+    Robust against stale or corrupt session data from older versions.
+    """
+    raw = session.get("cart", {})
+    # If the session has bad data from an old version, wipe it.
+    if not isinstance(raw, dict):
+        session["cart"] = {}
+        session.modified = True
+        return []
+    out = []
+    for item_id, qty in raw.items():
+        if not isinstance(item_id, str):
+            continue
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            continue
+        if qty <= 0:
+            continue
+        item = MENU_BY_ID.get(item_id)
+        if item:
+            out.append({"id": item["id"], "name": item["name"], "price": item["price"], "qty": qty})
+    return out
+
+
+def get_cart_dict():
+    """Safely get the raw cart dict from session, fixing bad data."""
+    cart = session.get("cart", {})
+    if not isinstance(cart, dict):
+        cart = {}
+        session["cart"] = cart
+        session.modified = True
+    return cart
+
+
+def cart_total(cart=None):
+    """Sum up the total naira value of the cart."""
+    if cart is None:
+        cart = get_cart()
+    return sum(i["price"] * i["qty"] for i in cart)
+
+
 # The route "/" is the home page of the website.
 @app.route("/")
 def home():
@@ -116,10 +331,11 @@ def amenities():
     return render_template("amenities.html")
 
 
-# Dining page - shows the restaurant & bar info.
+# Dining page - now an interactive menu guests can order from.
 @app.route("/dining")
 def dining():
-    return render_template("dining.html")
+    cart = get_cart()
+    return render_template("dining.html", menu=MENU, cart=cart, cart_total=cart_total(cart))
 
 
 # Contact page - shows address, phone, email and map.
@@ -175,6 +391,8 @@ def book():
         conn.execute("UPDATE bookings SET ticket_id = ? WHERE id = ?", (ticket_id, booking_id))
         conn.commit()
         conn.close()
+        log_activity("Booking", "New Booking", ticket_id,
+                     "{} booked {} for {} to {} ({} guests)".format(name, room_type, check_in, check_out, guests))
 
         # Send the guest to the confirmation page with their ticket + payment details.
         return render_template(
@@ -218,7 +436,129 @@ def ticket():
     return render_template("ticket.html", b=None)
 
 
-# ===== ADMIN PAGE (view all bookings) =====
+# ===== ROOM SERVICE CART =====
+
+# Add an item to the cart.
+@app.route("/cart/add", methods=["POST"])
+def cart_add():
+    item_id = request.form.get("item_id", "")
+    if item_id not in MENU_BY_ID:
+        flash("That item is not on the menu.", "error")
+        return redirect(url_for("dining"))
+
+    cart = get_cart_dict()
+    cart[item_id] = cart.get(item_id, 0) + 1
+    session["cart"] = cart
+    flash('"{}" added to your order.'.format(MENU_BY_ID[item_id]["name"]), "ok")
+    return redirect(url_for("dining", _anchor="menu"))
+
+
+# Remove one unit of an item from the cart.
+@app.route("/cart/remove", methods=["POST"])
+def cart_remove():
+    item_id = request.form.get("item_id", "")
+    cart = get_cart_dict()
+    if item_id in cart:
+        cart[item_id] -= 1
+        if cart[item_id] <= 0:
+            del cart[item_id]
+        session["cart"] = cart
+    return redirect(url_for("dining", _anchor="orderCart"))
+
+
+# Delete an item from the cart entirely.
+@app.route("/cart/delete", methods=["POST"])
+def cart_delete():
+    item_id = request.form.get("item_id", "")
+    cart = get_cart_dict()
+    cart.pop(item_id, None)
+    session["cart"] = cart
+    return redirect(url_for("dining", _anchor="orderCart"))
+
+
+# Empty the whole cart.
+@app.route("/cart/clear", methods=["POST"])
+def cart_clear():
+    session["cart"] = {}
+    return redirect(url_for("dining", _anchor="menu"))
+
+
+# ===== CHECKOUT (guest enters details + picks payment) =====
+
+@app.route("/checkout", methods=["GET", "POST"])
+def checkout():
+    cart = get_cart()
+
+    # If the cart is empty, send them back to the menu.
+    if not cart:
+        flash("Your order is empty. Add some items from the menu first.", "error")
+        return redirect(url_for("dining"))
+
+    if request.method == "POST":
+        guest_name = request.form.get("guest_name", "").strip()
+        room_number = request.form.get("room_number", "").strip()
+        phone = request.form.get("phone", "").strip()
+        payment_method = request.form.get("payment_method", "").strip()
+
+        if not guest_name or not room_number or payment_method not in ("transfer", "cash"):
+            flash("Please enter your name, room number and pick a payment method.", "error")
+            return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                                   form=request.form, payment=PAYMENT)
+
+        total = cart_total(cart)
+        # Save the items as JSON so we keep name + price + qty forever,
+        # even if the menu changes later.
+        items_json = json.dumps(cart, ensure_ascii=False)
+
+        if payment_method == "transfer":
+            pay_status = "Pending"
+        else:
+            pay_status = "Cash on Delivery"
+
+        conn = get_db()
+        cur = conn.execute(
+            """
+            INSERT INTO food_orders
+                (order_ref, guest_name, room_number, phone, items, total,
+                 payment_method, payment_status, order_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'New', ?)
+            """,
+            (
+                "",  # filled in after we know the id
+                guest_name,
+                room_number,
+                phone,
+                items_json,
+                total,
+                payment_method,
+                pay_status,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+            ),
+        )
+        order_id = cur.lastrowid
+        order_ref = "ORD-{:04d}".format(order_id)
+        conn.execute("UPDATE food_orders SET order_ref = ? WHERE id = ?", (order_ref, order_id))
+        conn.commit()
+        conn.close()
+        log_activity("Food Order", "New Order", order_ref,
+                     "{} in Room {} placed an order - {} ({} items, total {})".format(
+                         guest_name, room_number, payment_method.title(),
+                         len(cart), total))
+
+        # Order placed -> empty the cart.
+        session["cart"] = {}
+
+        return render_template("order_success.html", order_ref=order_ref,
+                               guest_name=guest_name, room_number=room_number,
+                               phone=phone, cart=cart, total=total,
+                               payment_method=payment_method, payment=PAYMENT)
+
+    # GET - show the checkout form.
+    return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                           form=None, payment=PAYMENT)
+
+
+# ===== ADMIN PAGE (view all bookings + food orders) =====
 # Password protected so only hotel staff can see the bookings.
 ADMIN_PASSWORD = "lekkisuites2026"
 
@@ -242,7 +582,36 @@ def admin():
 
     conn = get_db()
     bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
+    food_orders = conn.execute("SELECT * FROM food_orders ORDER BY id DESC").fetchall()
     conn.close()
+
+    # Count new food orders for the notification badge.
+    new_orders_count = sum(1 for o in food_orders if o["order_status"] == "New")
+
+    # --- Parse food orders so the history shows directly on this page ---
+    parsed_orders = []
+    for o in food_orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed_orders.append((o, items))
+
+    # Food order stats
+    o_new = sum(1 for o in food_orders if o["order_status"] == "New")
+    o_prep = sum(1 for o in food_orders if o["order_status"] == "Preparing")
+    o_ready = sum(1 for o in food_orders if o["order_status"] == "Ready")
+    o_delivered = sum(1 for o in food_orders if o["order_status"] == "Delivered")
+    food_revenue = sum(o["total"] for o in food_orders
+                       if o["payment_status"] in ("Confirmed", "Cash on Delivery"))
+    order_stats = {
+        "total": len(food_orders),
+        "new": o_new,
+        "preparing": o_prep,
+        "ready": o_ready,
+        "delivered": o_delivered,
+        "revenue": food_revenue,
+    }
 
     # --- Compute dashboard stats ---
     today = date.today()
@@ -287,7 +656,8 @@ def admin():
         "expired": expired,
         "revenue": revenue,
     }
-    return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""))
+    return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""),
+                           new_orders_count=new_orders_count)
 
 
 # Mark a booking as paid / confirmed.
@@ -296,10 +666,86 @@ def admin_confirm(booking_id):
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin"))
     conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
     conn.execute("UPDATE bookings SET status = 'Confirmed' WHERE id = ?", (booking_id,))
     conn.commit()
     conn.close()
+    if b:
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+        log_activity("Booking", "Payment Confirmed", b["ticket_id"],
+                     "{} marked as Paid - {} ({} nights x {}) = {}".format(
+                         b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
     return redirect(url_for("admin"))
+
+
+# ===== ADMIN: FOOD ORDERS =====
+
+@app.route("/admin/orders")
+def admin_orders():
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    orders = conn.execute("SELECT * FROM food_orders ORDER BY id DESC").fetchall()
+    conn.close()
+
+    # Count new orders for the notification badge.
+    new_count = sum(1 for o in orders if o["order_status"] == "New")
+    preparing_count = sum(1 for o in orders if o["order_status"] == "Preparing")
+    ready_count = sum(1 for o in orders if o["order_status"] == "Ready")
+    delivered_count = sum(1 for o in orders if o["order_status"] == "Delivered")
+    food_revenue = sum(o["total"] for o in orders if o["payment_status"] in ("Confirmed", "Cash on Delivery"))
+
+    order_stats = {
+        "total": len(orders),
+        "new": new_count,
+        "preparing": preparing_count,
+        "ready": ready_count,
+        "delivered": delivered_count,
+        "revenue": food_revenue,
+    }
+
+    parsed = []
+    for o in orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed.append((o, items))
+
+    return render_template("admin_orders.html", orders=parsed, new_count=new_count,
+                           order_stats=order_stats)
+
+
+# Confirm a transfer payment for a food order.
+@app.route("/admin/orders/confirm/<int:order_id>", methods=["POST"])
+def admin_confirm_payment(order_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    conn.execute("UPDATE food_orders SET payment_status = 'Confirmed' WHERE id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin", _anchor="food-orders"))
+
+
+# Change the status of a food order (New -> Preparing -> Ready -> Delivered).
+@app.route("/admin/orders/status/<int:order_id>", methods=["POST"])
+def admin_order_status(order_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    status = request.form.get("status", "")
+    if status not in ("Preparing", "Ready", "Delivered"):
+        return redirect(url_for("admin", _anchor="food-orders"))
+    conn = get_db()
+    conn.execute("UPDATE food_orders SET order_status = ? WHERE id = ?", (status, order_id))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin", _anchor="food-orders"))
 
 
 @app.route("/admin/logout")

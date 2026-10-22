@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Bookings | Lekki Suites Admin{% endblock %}
+
+{% block content %}
+
+    <!-- ===== PAGE HEADER ===== -->
+    <section class="page-hero">
+        <h1>Bookings</h1>
+        <p>All room booking tickets, newest first.</p>
+    </section>
+
+    <!-- ===== ADMIN PANEL ===== -->
+    <section class="admin">
+        <div class="container">
+
+            <!-- ===== NAVIGATION BUTTONS ===== -->
+            <div class="admin-bar">
+                <a href="{{ url_for('admin_orders') }}" class="btn-gold" style="font-size:1.1rem; padding:12px 28px;">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
+                <a href="{{ url_for('ticket') }}" class="btn-gold">Check Ticket</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
+            </div>
+            <p class="section-sub" style="text-align:center; margin-top:8px;">Click <strong>🍽️ Food Orders</strong> above to see all room service orders &rarr;</p>
+
+            <!-- ===== STATS DASHBOARD ===== -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-num">{{ stats.total }}</span>
+                    <span class="stat-label">Total Bookings</span>
+                </div>
+                <div class="stat-card stat-revenue">
+                    <span class="stat-num">&#8358;{{ "{:,}".format(stats.revenue) }}</span>
+                    <span class="stat-label">Revenue (Paid)</span>
+                </div>
+                <div class="stat-card stat-pending">
+                    <span class="stat-num">{{ stats.pending }}</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+                <div class="stat-card stat-active">
+                    <span class="stat-num">{{ stats.active }}</span>
+                    <span class="stat-label">Active</span>
+                </div>
+                <div class="stat-card stat-upcoming">
+                    <span class="stat-num">{{ stats.upcoming }}</span>
+                    <span class="stat-label">Upcoming</span>
+                </div>
+                <div class="stat-card stat-expired">
+                    <span class="stat-num">{{ stats.expired }}</span>
+                    <span class="stat-label">Expired</span>
+                </div>
+            </div>
+
+            <!-- ===== SEARCH ===== -->
+            <form method="GET" action="{{ url_for('admin') }}" class="admin-search">
+                <input type="text" name="q" value="{{ q }}" placeholder="Search by name or ticket number...">
+                <button type="submit" class="btn-gold">Search</button>
+                {% if q %}<a href="{{ url_for('admin') }}" class="btn-gold btn-outline">Clear</a>{% endif %}
+            </form>
+
+            {% if rows %}
+                <div class="table-wrap">
+                    <table class="bookings-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Name</th>
+                                <th>Phone</th>
+                                <th>Room</th>
+                                <th>Check-in</th>
+                                <th>Check-out</th>
+                                <th>Guests</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for b, cls, label in rows %}
+                            <tr>
+                                <td><strong>{{ b.ticket_id }}</strong></td>
+                                <td>{{ b.name }}</td>
+                                <td>{{ b.phone }}</td>
+                                <td>{{ b.room_type }}</td>
+                                <td>{{ b.check_in }}</td>
+                                <td>{{ b.check_out }}</td>
+                                <td>{{ b.guests }}</td>
+                                <td><span class="status-badge status-{{ cls }}">{{ label }}</span></td>
+                                <td>
+                                    {% if b.status != 'Confirmed' %}
+                                    <form method="POST" action="{{ url_for('admin_confirm', booking_id=b.id) }}" style="display:inline;">
+                                        <button type="submit" class="btn-confirm">Mark Paid</button>
+                                    </form>
+                                    {% else %}
+                                        <span class="confirmed-mark">&#10003; Paid</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                {% if q %}
+                    <p class="section-sub">No bookings match "{{ q }}". <a href="{{ url_for('admin') }}">Clear search</a></p>
+                {% else %}
+                    <p class="section-sub">No bookings yet. New requests will appear here.</p>
+                {% endif %}
+            {% endif %}
+
+        </div>
+    </section>
+
+{% endblock %}

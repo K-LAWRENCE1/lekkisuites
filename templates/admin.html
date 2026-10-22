@@ -6,16 +6,20 @@
     <!-- ===== PAGE HEADER ===== -->
     <section class="page-hero">
         <h1>Bookings</h1>
-        <p>All booking tickets, newest first.</p>
+        <p>All room booking tickets, newest first.</p>
     </section>
 
     <!-- ===== ADMIN PANEL ===== -->
     <section class="admin">
         <div class="container">
+
+            <!-- ===== NAVIGATION BUTTONS ===== -->
             <div class="admin-bar">
+                <a href="{{ url_for('admin_orders') }}" class="btn-gold" style="font-size:1.1rem; padding:12px 28px;">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
                 <a href="{{ url_for('ticket') }}" class="btn-gold">Check Ticket</a>
                 <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
             </div>
+            <p class="section-sub" style="text-align:center; margin-top:8px;">Click <strong>🍽️ Food Orders</strong> above to see all room service orders &rarr;</p>
 
             <!-- ===== STATS DASHBOARD ===== -->
             <div class="stats-grid">
@@ -100,6 +104,7 @@
                     <p class="section-sub">No bookings yet. New requests will appear here.</p>
                 {% endif %}
             {% endif %}
+
         </div>
     </section>
 

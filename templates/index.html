@@ -4,7 +4,16 @@
 
     <!-- ===== HERO SECTION ===== -->
     <section class="hero" id="home">
+        <!-- Background hotel video (the "ad") -->
+        <video class="hero-video" autoplay muted loop playsinline id="heroVideo">
+            <source src="{{ url_for('static', filename='hotel.mp4') }}" type="video/mp4">
+        </video>
+        <!-- Sound toggle button -->
+        <button class="hero-sound" id="heroSound" type="button" aria-label="Toggle sound">&#128264;</button>
         <div class="hero-content">
+            <div class="hero-logo">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Lekki Suites">
+            </div>
             <h1>Welcome to Lekki Suites</h1>
             <p>Luxury &amp; Comfort in the Heart of Lekki, Lagos</p>
             <div class="hero-divider" aria-hidden="true">
@@ -63,4 +72,16 @@
 
 {% endblock %}
 
-{% block scripts %}{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    var v = document.getElementById('heroVideo');
+    var btn = document.getElementById('heroSound');
+    if (!v || !btn) return;
+    btn.addEventListener('click', function() {
+        v.muted = !v.muted;
+        btn.innerHTML = v.muted ? '&#128264;' : '&#128266;';
+    });
+})();
+</script>
+{% endblock %}

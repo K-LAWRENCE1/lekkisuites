@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Rooms &amp; Suites | Lekki Suites{% endblock %}
+
+{% block content %}
+
+    <!-- ===== PAGE HEADER ===== -->
+    <section class="page-hero">
+        <h1>Our Rooms &amp; Suites</h1>
+        <p>Choose from our range of beautifully appointed accommodations.</p>
+    </section>
+
+    <!-- ===== ROOMS ===== -->
+    <section class="rooms">
+        <div class="container">
+            <p class="section-sub">Real photos of each room will be added soon.</p>
+            <div class="room-grid">
+                <div class="room-card">
+                    <div class="room-img standard"></div>
+                    <div class="room-info">
+                        <h3>Standard Room</h3>
+                        <ul>
+                            <li>Free Wi-Fi</li>
+                            <li>Air Conditioning</li>
+                            <li>Flat-screen TV</li>
+                            <li>Breakfast Included</li>
+                        </ul>
+                        <div class="room-price">&#8358; 25,000<span>/night</span></div>
+                        <a href="{{ url_for('book', room='Standard Room') }}" class="btn-room">Book Now</a>
+                    </div>
+                </div>
+
+                <div class="room-card">
+                    <div class="room-img deluxe"></div>
+                    <div class="room-info">
+                        <h3>Deluxe Room</h3>
+                        <ul>
+                            <li>Free Wi-Fi</li>
+                            <li>City View Balcony</li>
+                            <li>Mini Bar</li>
+                            <li>Breakfast Included</li>
+                        </ul>
+                        <div class="room-price">&#8358; 45,000<span>/night</span></div>
+                        <a href="{{ url_for('book', room='Deluxe Room') }}" class="btn-room">Book Now</a>
+                    </div>
+                </div>
+
+                <div class="room-card">
+                    <div class="room-img suite"></div>
+                    <div class="room-info">
+                        <h3>Executive Suite</h3>
+                        <ul>
+                            <li>Free Wi-Fi</li>
+                            <li>Living &amp; Bedroom</li>
+                            <li>Jacuzzi Bath</li>
+                            <li>Airport Shuttle</li>
+                        </ul>
+                        <div class="room-price">&#8358; 80,000<span>/night</span></div>
+                        <a href="{{ url_for('book', room='Executive Suite') }}" class="btn-room">Book Now</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+{% endblock %}
