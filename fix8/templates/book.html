@@ -59,15 +59,11 @@
                         <label for="room_type">Room Type *</label>
                         <select id="room_type" name="room_type" required>
                             <option value="">-- Select a room --</option>
-                            <option value="Standard Room" {{ 'selected' if (form and form.get('room_type') == 'Standard Room') or preselect == 'Standard Room' else '' }}>
-                                Standard Room &#8358;25,000/night
+                            {% for name, price in [('Standard Room', 40000), ('Executive Room', 45000), ('Deluxe Room', 50000), ('Deluxe Room (2 Beds)', 55000)] %}
+                            <option value="{{ name }}" {{ 'selected' if (form and form.get('room_type') == name) or preselect == name else '' }}>
+                                {{ name }} &#8358;{{ '{:,}'.format(price) }}/night
                             </option>
-                            <option value="Deluxe Room" {{ 'selected' if (form and form.get('room_type') == 'Deluxe Room') or preselect == 'Deluxe Room' else '' }}>
-                                Deluxe Room &#8358;45,000/night
-                            </option>
-                            <option value="Executive Suite" {{ 'selected' if (form and form.get('room_type') == 'Executive Suite') or preselect == 'Executive Suite' else '' }}>
-                                Executive Suite &#8358;80,000/night
-                            </option>
+                            {% endfor %}
                         </select>
                     </div>
 

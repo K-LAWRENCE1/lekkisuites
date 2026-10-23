@@ -12,9 +12,6 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 app = Flask(__name__)
 app.secret_key = "lekkisuites-secret-2026"
 
-# Let the browser cache images/video for a day, so the 3MB ad is not re-downloaded every visit.
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
-
 
 # --- Database helper ---
 # We store every booking and food order in a small SQLite database file (bookings.db).
@@ -31,9 +28,11 @@ PAYMENT = {
 
 # --- Room prices (per night), used to estimate revenue ---
 ROOM_PRICES = {
-    "Standard Room": 25000,
-    "Deluxe Room": 45000,
-    "Executive Suite": 80000,
+    "Standard Room": 40000,
+    "Executive Room": 45000,
+    "Deluxe Room": 50000,
+    "Deluxe Room (2 Beds)": 55000,
+    "Executive Suite": 45000,
 }
 
 
@@ -398,6 +397,14 @@ def book():
         log_activity("Booking", "New Booking", ticket_id,
                      "{} booked {} for {} to {} ({} guests)".format(name, room_type, check_in, check_out, guests))
 
+        # Work out the number of nights and the total price, so the guest sees it on the ticket.
+        try:
+            nights = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+        except ValueError:
+            nights = 0
+        nights = max(nights, 1) if nights > 0 else 0
+        total_amount = ROOM_PRICES.get(room_type, 0) * nights
+
         # Send the guest to the confirmation page with their ticket + payment details.
         return render_template(
             "booking_success.html",
@@ -409,6 +416,8 @@ def book():
             phone=phone,
             ticket_id=ticket_id,
             payment=PAYMENT,
+            nights=nights,
+            total_amount=total_amount,
         )
 
     # GET request - just show the empty form.
