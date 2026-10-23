@@ -90,6 +90,12 @@
                                     </form>
                                     {% else %}
                                         <span class="confirmed-mark">&#10003; Paid</span>
+                                        {% set ph = (b.phone or '')|replace(' ', '')|replace('-', '')|replace('+', '') %}
+                                        {% set intl = ('234' ~ ph[1:]) if ph.startswith('0') else ph %}
+                                        {% set wa_text = 'Lekki Suites - PAYMENT RECEIVED\n\nTicket: ' ~ b.ticket_id ~ '\nName: ' ~ b.name ~ '\nRoom: ' ~ b.room_type ~ '\nCheck-in: ' ~ b.check_in ~ '\nCheck-out: ' ~ b.check_out ~ '\nGuests: ' ~ b.guests ~ '\n\nShow this ticket at reception on arrival. Thank you!' %}
+                                        {% if intl %}
+                                        <a href="https://wa.me/{{ intl }}?text={{ wa_text|urlencode }}" target="_blank" class="btn-wa-receipt">WhatsApp</a>
+                                        {% endif %}
                                     {% endif %}
                                 </td>
                             </tr>

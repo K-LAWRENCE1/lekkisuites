@@ -5,6 +5,8 @@
 import json
 import os
 import sqlite3
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, date
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 
@@ -25,6 +27,59 @@ PAYMENT = {
     "account_number": "5870568143",
     "whatsapp": "2348092299428",
 }
+
+# --- Email notifications (fix28) ---
+# Set these in Render > Environment: SMTP_USER, SMTP_PASS, HOTEL_EMAIL
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+HOTEL_EMAIL = os.environ.get("HOTEL_EMAIL", "")
+
+
+def build_receipt(row, nights, amount):
+    """Receipt text for a paid booking."""
+    return (
+        "PAYMENT RECEIVED - Lekki Suites\n\n"
+        "Ticket:    {ticket}\n"
+        "Name:      {name}\n"
+        "Room:      {room}\n"
+        "Check-in:  {check_in}\n"
+        "Check-out: {check_out}\n"
+        "Guests:    {guests}\n"
+        "Nights:    {nights}\n"
+        "Amount:    NGN {total:,}\n"
+        "Status:    PAID\n\n"
+        "Show this ticket at reception on arrival.\n"
+        "1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+        "Phone/WhatsApp: +234 809 229 9428\n"
+        "https://lekkisuites.com/ticket"
+    ).format(
+        ticket=row["ticket_id"], name=row["name"], room=row["room_type"],
+        check_in=row["check_in"], check_out=row["check_out"],
+        guests=row["guests"], nights=nights, total=amount,
+    )
+
+
+def send_email(to_addr, subject, body):
+    """Send one plain-text email. Never raises - returns True/False."""
+    if not to_addr or not SMTP_USER or not SMTP_PASS:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["From"] = "Lekki Suites <{}>".format(SMTP_USER)
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        msg.set_content(body)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        return True
+    except Exception as err:
+        app.logger.warning("Email to %s failed: %s", to_addr, err)
+        return False
+
 
 # --- Room prices (per night), used to estimate revenue ---
 ROOM_PRICES = {
@@ -405,6 +460,31 @@ def book():
         nights = max(nights, 1) if nights > 0 else 0
         total_amount = ROOM_PRICES.get(room_type, 0) * nights
 
+        # Email the guest, plus a copy to the hotel as a backup of the booking.
+        message_body = (
+            "Hello {name},\n\n"
+            "Your booking at Lekki Suites is confirmed.\n\n"
+            "Ticket:    {ticket}\n"
+            "Room:      {room}\n"
+            "Check-in:  {check_in}\n"
+            "Check-out: {check_out}\n"
+            "Guests:    {guests}\n"
+            "Nights:    {nights}\n"
+            "Total:     NGN {total:,}\n\n"
+            "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+            "Phone/WhatsApp: +234 809 229 9428\n\n"
+            "Check your booking any time at https://lekkisuites.com/ticket "
+            "using ticket number {ticket}.\n\n"
+            "Please pay at the hotel on arrival.\n\n"
+            "Lekki Suites"
+        ).format(
+            name=name, ticket=ticket_id, room=room_type, check_in=check_in,
+            check_out=check_out, guests=guests, nights=nights, total=total_amount,
+        )
+        send_email(email, "Booking {} confirmed - Lekki Suites".format(ticket_id), message_body)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "New booking {} - {}".format(ticket_id, name), message_body)
+
         # Send the guest to the confirmation page with their ticket + payment details.
         return render_template(
             "booking_success.html",
@@ -692,6 +772,14 @@ def admin_confirm(booking_id):
         log_activity("Booking", "Payment Confirmed", b["ticket_id"],
                      "{} marked as Paid - {} ({} nights x {}) = {}".format(
                          b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
+
+        # Email the receipt to the guest (only if they were not already marked paid).
+        if b["status"] != "Confirmed":
+            receipt = build_receipt(b, max(nights, 0), amount)
+            if b["email"]:
+                send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+            if HOTEL_EMAIL:
+                send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
     return redirect(url_for("admin"))
 
 
