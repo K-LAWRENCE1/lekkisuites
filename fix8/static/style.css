@@ -2031,6 +2031,6 @@ h2 {
 
 .explore-home .room-img img,
 .explore-home .room-img.slider .slide {
-    object-fit: contain;
+    object-fit: cover;
     object-position: center;
 }
