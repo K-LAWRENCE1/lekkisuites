@@ -1940,3 +1940,84 @@ h2 {
         height: 210px;
     }
 }
+
+/* ===== Photo headers for inner pages (fix18) ===== */
+.page-hero.photo-rooms,
+.page-hero.photo-amenities,
+.page-hero.photo-dining,
+.page-hero.photo-contact,
+.page-hero.photo-book {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.page-hero.photo-rooms {
+    background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
+        url('/static/rooms/deluxe-1.jpg');
+}
+.page-hero.photo-amenities {
+    background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
+        url('/static/rooms/executive-1.jpg');
+}
+.page-hero.photo-dining {
+    background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
+        url('/static/bar_lounge.jpeg');
+}
+.page-hero.photo-contact {
+    background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
+        url('/static/contact-hero.jpg');
+}
+.page-hero.photo-book {
+    background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
+        url('/static/rooms/deluxe2-1.jpg');
+}
+
+/* ===== Stylish type for room names, prices and descriptions (fix18) ===== */
+.room-info h3,
+.room-price,
+.room-info p {
+    font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+}
+
+.room-info h3 {
+    font-size: 23px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.room-price {
+    font-size: 27px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: #0f1c2e;
+}
+
+.room-price span {
+    font-family: "Inter", sans-serif;
+    font-weight: 400;
+}
+
+.room-info p {
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+/* ===== Auto-sliding photos on the Explore cards (fix19) ===== */
+.room-img.slider {
+    position: relative;
+}
+
+.room-img.slider .slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.9s ease-in-out;
+}
+
+.room-img.slider .slide.active {
+    opacity: 1;
+}

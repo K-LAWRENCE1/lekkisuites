@@ -45,21 +45,33 @@
             <p class="section-sub">Discover everything we have to offer.</p>
             <div class="room-grid">
                 <a href="{{ url_for('rooms') }}" class="room-card">
-                    <div class="room-img standard"></div>
+                                        <div class="room-img slider">
+                        {% for photo in ['rooms/deluxe-1.jpg', 'rooms/standard-1.jpg', 'rooms/deluxe2-1.jpg', 'rooms/executive-1.jpg', 'rooms/room-5.jpg'] %}
+                        <img class="slide{% if loop.first %} active{% endif %}"
+                             src="{{ url_for('static', filename=photo) }}"
+                             alt="Rooms and suites at Lekki Suites" loading="lazy">
+                        {% endfor %}
+                    </div>
                     <div class="room-info">
                         <h3>Rooms &amp; Suites</h3>
                         <p>Comfortable, elegant accommodations for every guest.</p>
                     </div>
                 </a>
                 <a href="{{ url_for('amenities') }}" class="room-card">
-                    <div class="room-img deluxe"></div>
+                    <div class="room-img"><img src="{{ url_for('static', filename='rooms/executive-4.jpg') }}" alt="Bathroom in a Lekki Suites room" loading="lazy"></div>
                     <div class="room-info">
                         <h3>Amenities</h3>
                         <p>Everything you need for a relaxing stay.</p>
                     </div>
                 </a>
                 <a href="{{ url_for('dining') }}" class="room-card">
-                    <div class="room-img suite"></div>
+                    <div class="room-img slider">
+                        {% for photo in ['bar_lounge.jpeg', 'dining-2.jpg'] %}
+                        <img class="slide{% if loop.first %} active{% endif %}"
+                             src="{{ url_for('static', filename=photo) }}"
+                             alt="Lekki Suites dining and bar" loading="lazy">
+                        {% endfor %}
+                    </div>
                     <div class="room-info">
                         <h3>Dining</h3>
                         <p>Local and international cuisine by our chefs.</p>
@@ -117,5 +129,17 @@
         kick();
     });
 })();
+
+    /* Auto-sliding room photos on the Explore "Rooms & Suites" card */
+    document.querySelectorAll('.room-img.slider').forEach(function (box) {
+        var slides = box.querySelectorAll('.slide');
+        if (slides.length < 2) return;
+        var i = 0;
+        setInterval(function () {
+            slides[i].classList.remove('active');
+            i = (i + 1) % slides.length;
+            slides[i].classList.add('active');
+        }, 3500);
+    });
 </script>
 {% endblock %}
