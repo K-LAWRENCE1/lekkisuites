@@ -1898,7 +1898,7 @@ h2 {
 
 /* ===== REAL ROOM PHOTOS (fix16) ===== */
 .room-img {
-    height: 230px;
+    height: 170px;
     overflow: hidden;
     background: #f2f2f2;
 }
@@ -1907,6 +1907,7 @@ h2 {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center 65%;
     display: block;
 }
 
@@ -1937,7 +1938,7 @@ h2 {
 
 @media (max-width: 768px) {
     .room-img {
-        height: 210px;
+        height: 150px;
     }
 }
 
@@ -2014,6 +2015,7 @@ h2 {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center 65%;
     opacity: 0;
     transition: opacity 0.9s ease-in-out;
 }
