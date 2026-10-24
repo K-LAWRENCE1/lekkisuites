@@ -8,7 +8,7 @@ import sqlite3
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, date
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
 
 # Create the Flask application
 app = Flask(__name__)
@@ -397,6 +397,26 @@ def dining():
 
 
 # Contact page - shows address, phone, email and map.
+# ===== SEO: robots.txt + sitemap.xml (fix30) =====
+SITE_URL = "https://lekkisuites.com"
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: {}/sitemap.xml\n".format(SITE_URL)
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket"]
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for page in pages:
+        parts.append("<url><loc>{}{}</loc><changefreq>weekly</changefreq></url>".format(SITE_URL, page))
+    parts.append("</urlset>")
+    return Response("\n".join(parts), mimetype="application/xml")
+
+
 @app.route("/contact")
 def contact():
     return render_template("contact.html")
