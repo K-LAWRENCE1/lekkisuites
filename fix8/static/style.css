@@ -2034,3 +2034,46 @@ h2 {
     object-fit: cover;
     object-position: center;
 }
+
+/* ===== Home Explore "Amenities" card: rolling circular icons (fix31) ===== */
+.room-img.amenity-band {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    background: linear-gradient(135deg, #0f1c2e 0%, #1a3a5c 100%);
+    height: auto;
+    aspect-ratio: 3 / 2;
+}
+
+.amenity-track {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0;
+    width: max-content;
+    animation: amenity-roll 20s linear infinite;
+}
+
+.amenity-pill {
+    flex: 0 0 auto;
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(201, 162, 39, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    line-height: 1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes amenity-roll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+}
+
+.room-card:hover .amenity-track {
+    animation-play-state: paused;
+}

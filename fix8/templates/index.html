@@ -58,7 +58,20 @@
                     </div>
                 </a>
                 <a href="{{ url_for('amenities') }}" class="room-card">
-                    <div class="room-img"><img src="{{ url_for('static', filename='rooms/executive-4.jpg') }}" alt="Bathroom in a Lekki Suites room" loading="lazy"></div>
+                    <div class="room-img amenity-band">
+                        <div class="amenity-track">
+                            {% for _ in range(2) %}
+                            <span class="amenity-pill">&#128246;</span>
+                            <span class="amenity-pill">&#127947;</span>
+                            <span class="amenity-pill">&#127858;</span>
+                            <span class="amenity-pill">&#128718;</span>
+                            <span class="amenity-pill">&#128663;</span>
+                            <span class="amenity-pill">&#128188;</span>
+                            <span class="amenity-pill">&#9992;</span>
+                            <span class="amenity-pill">&#128274;</span>
+                            {% endfor %}
+                        </div>
+                    </div>
                     <div class="room-info">
                         <h3>Amenities</h3>
                         <p>Everything you need for a relaxing stay.</p>
