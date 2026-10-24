@@ -46,7 +46,7 @@
             <div class="room-grid">
                 <a href="{{ url_for('rooms') }}" class="room-card">
                                         <div class="room-img slider">
-                        {% for photo in ['rooms/deluxe-1.jpg', 'rooms/standard-1.jpg', 'rooms/deluxe2-1.jpg', 'rooms/executive-1.jpg', 'rooms/room-5.jpg'] %}
+                        {% for photo in ['rooms/deluxe-1.jpg', 'rooms/room-6.jpg', 'rooms/standard-1.jpg', 'rooms/room-7.jpg', 'rooms/deluxe2-1.jpg', 'rooms/executive-1.jpg', 'rooms/room-5.jpg'] %}
                         <img class="slide{% if loop.first %} active{% endif %}"
                              src="{{ url_for('static', filename=photo) }}"
                              alt="Rooms and suites at Lekki Suites" loading="lazy">
@@ -64,6 +64,8 @@
                             <span class="amenity-pill">&#128246;</span>
                             <span class="amenity-pill">&#127947;</span>
                             <span class="amenity-pill">&#127858;</span>
+                            <span class="amenity-pill">&#129530;</span>
+                            <span class="amenity-pill amenity-logo"><img src="{{ url_for('static', filename='logo.png') }}" alt="Lekki Suites"></span>
                             <span class="amenity-pill">&#128718;</span>
                             <span class="amenity-pill">&#128663;</span>
                             <span class="amenity-pill">&#128188;</span>
@@ -79,7 +81,7 @@
                 </a>
                 <a href="{{ url_for('dining') }}" class="room-card">
                     <div class="room-img slider">
-                        {% for photo in ['bar_lounge.jpeg', 'dining-2.jpg'] %}
+                        {% for photo in ['dining-4.jpg', 'dining-3.jpg', 'bar_lounge.jpeg', 'dining-5.jpg', 'dining-2.jpg'] %}
                         <img class="slide{% if loop.first %} active{% endif %}"
                              src="{{ url_for('static', filename=photo) }}"
                              alt="Lekki Suites dining and bar" loading="lazy">
@@ -91,6 +93,49 @@
                     </div>
                 </a>
             </div>
+        </div>
+    </section>
+
+    <!-- ===== GUEST REVIEWS (real Google reviews) ===== -->
+    <section class="reviews">
+        <div class="container">
+            <h2>What Our Guests Say</h2>
+
+            <div class="review-score">
+                <span class="rs-num">3.9</span>
+                <div class="rs-right">
+                    <span class="rs-stars" aria-label="3.9 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9734;</span>
+                    <span class="rs-meta">237 reviews on Google</span>
+                </div>
+            </div>
+
+            <div class="review-grid">
+                <figure class="review-card">
+                    <div class="rc-stars" aria-label="5 out of 5">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+                    <blockquote>I loved my stay here and the customer service was top notch including the breakfast.</blockquote>
+                    <figcaption><strong>Anwuli</strong><span>Google review</span></figcaption>
+                </figure>
+
+                <figure class="review-card">
+                    <div class="rc-stars" aria-label="4 out of 5">&#9733;&#9733;&#9733;&#9733;&#9734;</div>
+                    <blockquote>Well maintained place with limited parking space but secured residential estate where vehicles are safe when parked outside&hellip; also it&rsquo;s a budget friendly accommodation.</blockquote>
+                    <figcaption><strong>Harley E.</strong><span>Google review</span></figcaption>
+                </figure>
+
+                <figure class="review-card">
+                    <div class="rc-stars" aria-label="4 out of 5">&#9733;&#9733;&#9733;&#9733;&#9734;</div>
+                    <blockquote>Great service&hellip; I enjoyed my stay. It looks more comfortable for me and gives a home feeling.</blockquote>
+                    <figcaption><strong>Imosili O.</strong><span>Google review</span></figcaption>
+                </figure>
+
+                <figure class="review-card">
+                    <div class="rc-stars" aria-label="4 out of 5">&#9733;&#9733;&#9733;&#9733;&#9734;</div>
+                    <blockquote>Everything else was great. Would I stay there again? Sure!!</blockquote>
+                    <figcaption><strong>Juliette E.</strong><span>Google review</span></figcaption>
+                </figure>
+            </div>
+
+            <a class="review-link" href="https://www.google.com/maps/search/?api=1&amp;query=Lekki%20Suites%201%20Kayode%20Otitoju%20Lekki%20Phase%201%20Lagos" target="_blank" rel="noopener">Read all 237 reviews on Google &rarr;</a>
         </div>
     </section>
 

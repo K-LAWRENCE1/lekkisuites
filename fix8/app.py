@@ -2,6 +2,8 @@
 # This is the main Flask application file.
 # Flask is a lightweight web framework that lets us serve web pages.
 
+import csv
+import io
 import json
 import os
 import sqlite3
@@ -245,6 +247,12 @@ def init_db():
         conn.execute("ALTER TABLE bookings ADD COLUMN ticket_id TEXT")
     if "status" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'Pending'")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN notes TEXT")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN updated_at TEXT")
+    if "room_no" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
 
     # --- Food orders table (room service) ---
     conn.execute(
@@ -310,8 +318,19 @@ def ticket_display(b):
       - expired  -> the check-out date has passed
     """
     status = b["status"] if b["status"] else "Pending"
-    if status != "Confirmed":
+
+    # Reception-only states that override the date-based ones (fix32).
+    if status == "Cancelled":
+        return ("cancelled", "Cancelled")
+    if status == "No-show":
+        return ("noshow", "No-show")
+    if status == "Checked Out":
+        return ("expired", "Checked Out")
+
+    if status not in ("Confirmed", "Checked In"):
         return ("pending", "Pending Payment")
+    if status == "Checked In":
+        return ("active", "Checked In")
     try:
         today = date.today()
         ci = date.fromisoformat(b["check_in"])
@@ -371,10 +390,23 @@ def cart_total(cart=None):
     return sum(i["price"] * i["qty"] for i in cart)
 
 
+# --- Guest reviews shown on the home page (fix32) ---
+# Two knobs: the public Google rating, and real quotes once you have them.
+# REVIEWS stays empty until you paste genuine guest words in here — nothing
+# on this site invents a review.
+#   {"name": "Ada O.", "text": "Quiet, clean and the staff were kind.", "when": "Oct 2026"}
+GOOGLE_RATING = {
+    "score": 3.9,
+    "count": 238,
+    "url": "https://www.google.com/search?q=Lekki+Suites+Lekki+Phase+1+Lagos+reviews",
+}
+REVIEWS = []
+
+
 # The route "/" is the home page of the website.
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("index.html", rating=GOOGLE_RATING, reviews=REVIEWS)
 
 
 # Rooms page - shows the rooms & suites.
@@ -690,8 +722,9 @@ def admin():
     if not session.get("admin_logged_in"):
         return render_template("admin_login.html")
 
-    # Optional search (by name or ticket number).
+    # Optional search (name, ticket number, phone) and status filter.
     q = request.args.get("q", "").strip().lower()
+    view = request.args.get("view", "all")  # all | today | pending | paid | closed
 
     conn = get_db()
     bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
@@ -752,10 +785,39 @@ def admin():
                 nights = 0
             revenue += ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
 
-    # --- Filter rows by the search query ---
+    # --- Today's arrivals: due to check in today, not yet cancelled ---
+    today_str = today.isoformat()
+    arrivals = [b for b in bookings
+                if (b["check_in"] or "") == today_str
+                and (b["status"] or "Pending") not in ("Cancelled", "No-show", "Checked Out")]
+    departing = [b for b in bookings
+                 if (b["check_out"] or "") == today_str
+                 and (b["status"] or "") == "Checked In"]
+    in_house = sum(1 for b in bookings if (b["status"] or "") == "Checked In")
+
+    # --- Filter rows by search + the selected view tab ---
+    def matches_view(b):
+        st = b["status"] or "Pending"
+        if view == "today":
+            return (b["check_in"] or "") == today_str or st == "Checked In"
+        if view == "pending":
+            return st == "Pending"
+        if view == "paid":
+            return st in ("Confirmed", "Checked In")
+        if view == "closed":
+            return st in ("Checked Out", "Cancelled", "No-show")
+        return True
+
     rows = []
     for b in bookings:
-        if q and q not in (b["name"] or "").lower() and q not in (b["ticket_id"] or "").lower():
+        if q and not (
+            q in (b["name"] or "").lower()
+            or q in (b["ticket_id"] or "").lower()
+            or q in (b["phone"] or "").lower()
+            or q in (b["room_no"] or "").lower()
+        ):
+            continue
+        if not matches_view(b):
             continue
         cls, label = ticket_display(b)
         rows.append((b, cls, label))
@@ -768,9 +830,14 @@ def admin():
         "upcoming": upcoming,
         "expired": expired,
         "revenue": revenue,
+        "arrivals": len(arrivals),
+        "in_house": in_house,
+        "departing": len(departing),
     }
     return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""),
-                           new_orders_count=new_orders_count)
+                           view=view, arrivals=arrivals, departing=departing,
+                           new_orders_count=new_orders_count,
+                           today_label=today.strftime("%a %d %b"))
 
 
 # Mark a booking as paid / confirmed.
@@ -801,6 +868,120 @@ def admin_confirm(booking_id):
             if HOTEL_EMAIL:
                 send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
     return redirect(url_for("admin"))
+
+
+# ===== ADMIN: RECEPTION ACTIONS (fix32) =====
+
+# The whole point of a front desk is changing a booking's state as the guest
+# moves through it. One endpoint handles every move so the templates stay simple.
+BOOKING_ACTIONS = {
+    "paid": ("Confirmed", "Marked as Paid"),
+    "checkin": ("Checked In", "Checked In"),
+    "checkout": ("Checked Out", "Checked Out"),
+    "cancel": ("Cancelled", "Cancelled"),
+    "noshow": ("No-show", "Marked No-show"),
+    "reopen": ("Confirmed", "Reopened"),
+}
+
+
+@app.route("/admin/booking/<int:booking_id>/action", methods=["POST"])
+def admin_booking_action(booking_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    action = request.form.get("action", "")
+    if action not in BOOKING_ACTIONS:
+        flash("Unknown action.", "error")
+        return redirect(url_for("admin"))
+
+    new_status, label = BOOKING_ACTIONS[action]
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not b:
+        conn.close()
+        return redirect(url_for("admin"))
+
+    conn.execute(
+        "UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?",
+        (new_status, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+
+    log_activity("Booking", label, b["ticket_id"],
+                 "{} - {} -> {}".format(b["name"], b["status"] or "Pending", new_status))
+
+    # Marking paid still sends the receipt/confirmation emails.
+    if action == "paid" and (b["status"] or "") != "Confirmed":
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+        receipt = build_receipt(b, max(nights, 0), amount)
+        if b["email"]:
+            send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
+
+    return redirect(url_for("admin", view=request.form.get("view", "all"),
+                            q=request.form.get("q", "")))
+
+
+@app.route("/admin/booking/<int:booking_id>/update", methods=["POST"])
+def admin_booking_update(booking_id):
+    """Save the reception notes and the physical room number for a booking."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    notes = (request.form.get("notes") or "").strip()[:1000]
+    room_no = (request.form.get("room_no") or "").strip()[:20]
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE bookings SET notes = ?, room_no = ?, updated_at = ? WHERE id = ?",
+        (notes, room_no, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Notes Updated", str(booking_id), notes[:120] or room_no)
+    return redirect(url_for("admin", view=request.form.get("view", "all"),
+                            q=request.form.get("q", "")))
+
+
+@app.route("/admin/bookings.csv")
+def admin_bookings_csv():
+    """Download every booking as a spreadsheet file (backup before a redeploy)."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
+    conn.close()
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Ticket", "Name", "Phone", "Email", "Room Type", "Room No",
+                     "Check-in", "Check-out", "Nights", "Guests", "Status",
+                     "Amount (NGN)", "Booked At", "Notes"])
+    for b in bookings:
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0) if b["status"] != "Pending" else 0
+        writer.writerow([
+            b["ticket_id"], b["name"], b["phone"], b["email"], b["room_type"],
+            b["room_no"], b["check_in"], b["check_out"], max(nights, 0), b["guests"],
+            b["status"] or "Pending", amount, b["booked_at"], b["notes"],
+        ])
+
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=lekkisuites-bookings-{}.csv".format(stamp)},
+    )
 
 
 # ===== ADMIN: FOOD ORDERS =====

@@ -15,97 +15,197 @@
 
             <!-- ===== NAVIGATION BUTTONS ===== -->
             <div class="admin-bar">
-                <a href="{{ url_for('admin_orders') }}" class="btn-gold" style="font-size:1.1rem; padding:12px 28px;">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
-                <a href="{{ url_for('ticket') }}" class="btn-gold">Check Ticket</a>
+                <a href="{{ url_for('admin_orders') }}" class="btn-gold admin-btn-lg">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
+                <a href="{{ url_for('admin_bookings_csv') }}" class="btn-gold">⬇ Spreadsheet</a>
+                <a href="{{ url_for('ticket') }}" class="btn-gold btn-outline">Check Ticket</a>
                 <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
             </div>
-            <p class="section-sub" style="text-align:center; margin-top:8px;">Click <strong>🍽️ Food Orders</strong> above to see all room service orders &rarr;</p>
 
-            <!-- ===== STATS DASHBOARD ===== -->
-            <div class="stats-grid">
+            <!-- ===== TODAY AT A GLANCE ===== -->
+            <div class="stats-grid admin-stats">
+                <div class="stat-card stat-active">
+                    <span class="stat-num">{{ stats.arrivals }}</span>
+                    <span class="stat-label">Arrivals Today</span>
+                </div>
                 <div class="stat-card">
-                    <span class="stat-num">{{ stats.total }}</span>
-                    <span class="stat-label">Total Bookings</span>
+                    <span class="stat-num">{{ stats.in_house }}</span>
+                    <span class="stat-label">In House</span>
+                </div>
+                <div class="stat-card stat-pending">
+                    <span class="stat-num">{{ stats.pending }}</span>
+                    <span class="stat-label">Unpaid</span>
                 </div>
                 <div class="stat-card stat-revenue">
                     <span class="stat-num">&#8358;{{ "{:,}".format(stats.revenue) }}</span>
                     <span class="stat-label">Revenue (Paid)</span>
                 </div>
-                <div class="stat-card stat-pending">
-                    <span class="stat-num">{{ stats.pending }}</span>
-                    <span class="stat-label">Pending</span>
-                </div>
-                <div class="stat-card stat-active">
-                    <span class="stat-num">{{ stats.active }}</span>
-                    <span class="stat-label">Active</span>
-                </div>
-                <div class="stat-card stat-upcoming">
-                    <span class="stat-num">{{ stats.upcoming }}</span>
-                    <span class="stat-label">Upcoming</span>
-                </div>
-                <div class="stat-card stat-expired">
-                    <span class="stat-num">{{ stats.expired }}</span>
-                    <span class="stat-label">Expired</span>
-                </div>
             </div>
+
+            <!-- ===== TODAY'S LIST ===== -->
+            <div class="today-panel">
+                <div class="today-head">
+                    <h3>Today &mdash; {{ today_label }}</h3>
+                    <span class="today-count">{{ stats.arrivals }} arriving{% if stats.departing %}, {{ stats.departing }} leaving{% endif %}</span>
+                </div>
+                {% if arrivals %}
+                    <ul class="today-list">
+                        {% for b in arrivals %}
+                        <li>
+                            <div class="today-main">
+                                <strong>{{ b.name }}</strong>
+                                <span class="today-meta">{{ b.room_type }}{% if b.room_no %} &middot; Room {{ b.room_no }}{% endif %} &middot; {{ b.guests }} guest{{ '' if b.guests == 1 else 's' }}</span>
+                            </div>
+                            <div class="today-actions">
+                                {% if b.status == 'Checked In' %}
+                                    <span class="today-in">&#10003; In</span>
+                                {% elif b.status == 'Pending' %}
+                                    <span class="today-unpaid">Unpaid</span>
+                                {% else %}
+                                    <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}">
+                                        <input type="hidden" name="action" value="checkin">
+                                        <input type="hidden" name="view" value="{{ view }}">
+                                        <button type="submit" class="btn-checkin">Check In</button>
+                                    </form>
+                                {% endif %}
+                                <a href="tel:{{ b.phone }}" class="today-call" aria-label="Call {{ b.name }}">&#128222;</a>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="today-empty">No arrivals scheduled for today.</p>
+                {% endif %}
+            </div>
+
+            <!-- ===== TABS ===== -->
+            <nav class="admin-tabs">
+                <a href="{{ url_for('admin', view='all', q=q) }}" class="{% if view == 'all' %}on{% endif %}">All</a>
+                <a href="{{ url_for('admin', view='today', q=q) }}" class="{% if view == 'today' %}on{% endif %}">Today</a>
+                <a href="{{ url_for('admin', view='pending', q=q) }}" class="{% if view == 'pending' %}on{% endif %}">Unpaid</a>
+                <a href="{{ url_for('admin', view='paid', q=q) }}" class="{% if view == 'paid' %}on{% endif %}">Paid</a>
+                <a href="{{ url_for('admin', view='closed', q=q) }}" class="{% if view == 'closed' %}on{% endif %}">Closed</a>
+            </nav>
 
             <!-- ===== SEARCH ===== -->
             <form method="GET" action="{{ url_for('admin') }}" class="admin-search">
-                <input type="text" name="q" value="{{ q }}" placeholder="Search by name or ticket number...">
+                <input type="hidden" name="view" value="{{ view }}">
+                <input type="text" name="q" value="{{ q }}" placeholder="Name, ticket, phone or room...">
                 <button type="submit" class="btn-gold">Search</button>
-                {% if q %}<a href="{{ url_for('admin') }}" class="btn-gold btn-outline">Clear</a>{% endif %}
+                {% if q %}<a href="{{ url_for('admin', view=view) }}" class="btn-gold btn-outline">Clear</a>{% endif %}
             </form>
 
             {% if rows %}
-                <div class="table-wrap">
-                    <table class="bookings-table">
-                        <thead>
-                            <tr>
-                                <th>Ticket</th>
-                                <th>Name</th>
-                                <th>Phone</th>
-                                <th>Room</th>
-                                <th>Check-in</th>
-                                <th>Check-out</th>
-                                <th>Guests</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for b, cls, label in rows %}
-                            <tr>
-                                <td><strong>{{ b.ticket_id }}</strong></td>
-                                <td>{{ b.name }}</td>
-                                <td>{{ b.phone }}</td>
-                                <td>{{ b.room_type }}</td>
-                                <td>{{ b.check_in }}</td>
-                                <td>{{ b.check_out }}</td>
-                                <td>{{ b.guests }}</td>
-                                <td><span class="status-badge status-{{ cls }}">{{ label }}</span></td>
-                                <td>
-                                    {% if b.status != 'Confirmed' %}
-                                    <form method="POST" action="{{ url_for('admin_confirm', booking_id=b.id) }}" style="display:inline;">
-                                        <button type="submit" class="btn-confirm">Mark Paid</button>
-                                    </form>
-                                    {% else %}
-                                        <span class="confirmed-mark">&#10003; Paid</span>
-                                        {% set ph = (b.phone or '')|replace(' ', '')|replace('-', '')|replace('+', '') %}
-                                        {% set intl = ('234' ~ ph[1:]) if ph.startswith('0') else ph %}
-                                        {% set wa_text = 'Lekki Suites - PAYMENT RECEIVED\n\nTicket: ' ~ b.ticket_id ~ '\nName: ' ~ b.name ~ '\nRoom: ' ~ b.room_type ~ '\nCheck-in: ' ~ b.check_in ~ '\nCheck-out: ' ~ b.check_out ~ '\nGuests: ' ~ b.guests ~ '\n\nShow this ticket at reception on arrival. Thank you!' %}
-                                        {% if intl %}
-                                        <a href="https://wa.me/{{ intl }}?text={{ wa_text|urlencode }}" target="_blank" class="btn-wa-receipt">WhatsApp</a>
-                                        {% endif %}
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="booking-cards">
+                    {% for b, cls, label in rows %}
+                    <article class="booking-card">
+                        <div class="bc-top">
+                            <span class="bc-ticket">{{ b.ticket_id }}</span>
+                            <span class="status-badge status-{{ cls }}">{{ label }}</span>
+                        </div>
+
+                        <div class="bc-body">
+                            <div class="bc-name">
+                                <strong>{{ b.name }}</strong>
+                                <a href="tel:{{ b.phone }}" class="bc-phone">{{ b.phone }}</a>
+                            </div>
+                            <dl class="bc-grid">
+                                <div><dt>Room</dt><dd>{{ b.room_type }}{% if b.room_no %} <span class="bc-roomno">#{{ b.room_no }}</span>{% endif %}</dd></div>
+                                <div><dt>Guests</dt><dd>{{ b.guests }}</dd></div>
+                                <div><dt>Check-in</dt><dd>{{ b.check_in }}</dd></div>
+                                <div><dt>Check-out</dt><dd>{{ b.check_out }}</dd></div>
+                            </dl>
+                            {% if b.requests %}
+                                <p class="bc-requests"><span>Request:</span> {{ b.requests }}</p>
+                            {% endif %}
+                            {% if b.notes %}
+                                <p class="bc-notes"><span>Note:</span> {{ b.notes }}</p>
+                            {% endif %}
+                        </div>
+
+                        <div class="bc-actions">
+                            {% if b.status in (None, 'Pending') %}
+                                <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}">
+                                    <input type="hidden" name="action" value="paid">
+                                    <input type="hidden" name="view" value="{{ view }}">
+                                    <input type="hidden" name="q" value="{{ q }}">
+                                    <button type="submit" class="btn-confirm">Mark Paid</button>
+                                </form>
+                                {% set ph = (b.phone or '')|replace(' ', '')|replace('-', '')|replace('+', '') %}
+                                {% set intl = ('234' ~ ph[1:]) if ph.startswith('0') else ph %}
+                                {% set wa_text = 'Lekki Suites - BOOKING RECEIVED\n\nTicket: ' ~ b.ticket_id ~ '\nName: ' ~ b.name ~ '\nRoom: ' ~ b.room_type ~ '\nCheck-in: ' ~ b.check_in ~ '\nCheck-out: ' ~ b.check_out ~ '\nGuests: ' ~ b.guests ~ '\n\nPayment: Moniepoint 5870568143 (ONE LS HOTELS NIGERIA LIMITED)\nSend your receipt on WhatsApp to confirm. Thank you!' %}
+                                {% if intl %}
+                                <a href="https://wa.me/{{ intl }}?text={{ wa_text|urlencode }}" target="_blank" rel="noopener" class="btn-wa-receipt">WhatsApp</a>
+                                {% endif %}
+
+                            {% elif b.status == 'Confirmed' %}
+                                <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}">
+                                    <input type="hidden" name="action" value="checkin">
+                                    <input type="hidden" name="view" value="{{ view }}">
+                                    <input type="hidden" name="q" value="{{ q }}">
+                                    <button type="submit" class="btn-checkin">Check In</button>
+                                </form>
+                                <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}" onsubmit="return confirm('Mark this guest as a no-show?');">
+                                    <input type="hidden" name="action" value="noshow">
+                                    <input type="hidden" name="view" value="{{ view }}">
+                                    <input type="hidden" name="q" value="{{ q }}">
+                                    <button type="submit" class="btn-ghost">No-show</button>
+                                </form>
+                                {% set ph = (b.phone or '')|replace(' ', '')|replace('-', '')|replace('+', '') %}
+                                {% set intl = ('234' ~ ph[1:]) if ph.startswith('0') else ph %}
+                                {% set wa_text = 'Lekki Suites - PAYMENT RECEIVED\n\nTicket: ' ~ b.ticket_id ~ '\nName: ' ~ b.name ~ '\nRoom: ' ~ b.room_type ~ '\nCheck-in: ' ~ b.check_in ~ '\nCheck-out: ' ~ b.check_out ~ '\nGuests: ' ~ b.guests ~ '\n\nShow this ticket at reception on arrival. Thank you!' %}
+                                {% if intl %}
+                                <a href="https://wa.me/{{ intl }}?text={{ wa_text|urlencode }}" target="_blank" rel="noopener" class="btn-wa-receipt">WhatsApp</a>
+                                {% endif %}
+
+                            {% elif b.status == 'Checked In' %}
+                                <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}">
+                                    <input type="hidden" name="action" value="checkout">
+                                    <input type="hidden" name="view" value="{{ view }}">
+                                    <input type="hidden" name="q" value="{{ q }}">
+                                    <button type="submit" class="btn-confirm">Check Out</button>
+                                </form>
+
+                            {% else %}
+                                <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}">
+                                    <input type="hidden" name="action" value="reopen">
+                                    <input type="hidden" name="view" value="{{ view }}">
+                                    <input type="hidden" name="q" value="{{ q }}">
+                                    <button type="submit" class="btn-ghost">Reopen</button>
+                                </form>
+                            {% endif %}
+
+                            {% if b.status != 'Cancelled' and b.status != 'Checked Out' %}
+                            <form method="POST" action="{{ url_for('admin_booking_action', booking_id=b.id) }}" onsubmit="return confirm('Cancel this booking?');">
+                                <input type="hidden" name="action" value="cancel">
+                                <input type="hidden" name="view" value="{{ view }}">
+                                <input type="hidden" name="q" value="{{ q }}">
+                                <button type="submit" class="btn-ghost btn-danger">Cancel</button>
+                            </form>
+                            {% endif %}
+                        </div>
+
+                        <details class="bc-more">
+                            <summary>Room &amp; notes</summary>
+                            <form method="POST" action="{{ url_for('admin_booking_update', booking_id=b.id) }}" class="bc-noteform">
+                                <input type="hidden" name="view" value="{{ view }}">
+                                <input type="hidden" name="q" value="{{ q }}">
+                                <label>Room number
+                                    <input type="text" name="room_no" value="{{ b.room_no or '' }}" placeholder="e.g. 204" inputmode="numeric">
+                                </label>
+                                <label>Reception note
+                                    <textarea name="notes" rows="2" placeholder="Allergies, late arrival, extra towel...">{{ b.notes or '' }}</textarea>
+                                </label>
+                                <button type="submit" class="btn-gold">Save</button>
+                            </form>
+                        </details>
+                    </article>
+                    {% endfor %}
                 </div>
             {% else %}
                 {% if q %}
-                    <p class="section-sub">No bookings match "{{ q }}". <a href="{{ url_for('admin') }}">Clear search</a></p>
+                    <p class="section-sub">No bookings match "{{ q }}". <a href="{{ url_for('admin', view=view) }}">Clear search</a></p>
+                {% elif view != 'all' %}
+                    <p class="section-sub">Nothing in this tab right now.</p>
                 {% else %}
                     <p class="section-sub">No bookings yet. New requests will appear here.</p>
                 {% endif %}
