@@ -76,6 +76,47 @@ body {
     font-size: 14px;
 }
 
+/* Order Food sits beside Book Now - ghosted so Book Now stays primary */
+.nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-food {
+    background: rgba(255, 255, 255, 0.06);
+    color: #f4d98a;
+    border: 1px solid rgba(201, 162, 39, 0.75);
+    padding: 8px 16px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    transition: background 0.2s, color 0.2s;
+}
+
+.btn-food:hover {
+    background: rgba(201, 162, 39, 0.9);
+    color: #0f1c2e;
+}
+
+@media (max-width: 480px) {
+    .nav-actions {
+        gap: 6px;
+    }
+
+    .btn-food {
+        padding: 7px 10px;
+        font-size: 12px;
+    }
+
+    .btn-book {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+}
+
 /* --- Hero --- */
 .hero {
     position: relative;
@@ -1336,6 +1377,42 @@ h2 {
 .order-cart-head h3 {
     font-size: 18px;
     color: #0f1c2e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cart-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 11px;
+    background: #c9a227;
+    color: #0f1c2e;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.cart-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* only needed on small screens, where the cart is a bottom sheet */
+.cart-toggle {
+    display: none;
+    background: #0f1c2e;
+    color: #fff;
+    border: none;
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
 }
 
 .btn-clear-cart {
@@ -1732,7 +1809,7 @@ h2 {
     flex-wrap: wrap;
 }
 
-/* --- Mobile: order cart becomes bottom bar --- */
+/* --- Mobile: order cart is a small bar, expands only when tapped --- */
 @media (max-width: 768px) {
     .order-cart {
         position: fixed;
@@ -1743,6 +1820,31 @@ h2 {
         max-height: 50vh;
         border-radius: 14px 14px 0 0;
         border-bottom: none;
+        padding: 10px 16px;
+    }
+
+    .order-cart-head {
+        margin-bottom: 0;
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .cart-toggle {
+        display: inline-block;
+    }
+
+    /* collapsed by default so it never covers the menu */
+    .cart-body {
+        display: none;
+        padding-top: 12px;
+        border-top: 1px solid #eee;
+        margin-top: 10px;
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+
+    .order-cart.open .cart-body {
+        display: block;
     }
 
     .pay-options {
@@ -1971,6 +2073,33 @@ h2 {
 .page-hero.photo-book {
     background-image: linear-gradient(rgba(15, 28, 46, 0.72), rgba(15, 28, 46, 0.72)),
         url('/static/rooms/deluxe2-1.jpg');
+}
+
+/* ===== "Order Food" pill on the Explore dining card (fix32) ===== */
+.room-img .card-cta {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(15, 28, 46, 0.66);
+    border: 1px solid rgba(201, 162, 39, 0.85);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    color: #f4d98a;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.room-card:hover .room-img .card-cta {
+    background: rgba(201, 162, 39, 0.95);
+    color: #0f1c2e;
 }
 
 /* ===== Stylish type for room names, prices and descriptions (fix18) ===== */

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=24) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=27) }}">
 </head>
 <body>
 
@@ -22,7 +22,10 @@
                 <a href="{{ url_for('dining') }}">Dining</a>
                 <a href="{{ url_for('contact') }}">Contact</a>
             </nav>
-            <a href="{{ url_for('book') }}" class="btn-book">Book Now</a>
+            <div class="nav-actions">
+                <a href="{{ url_for('dining') }}" class="btn-food">Order Food</a>
+                <a href="{{ url_for('book') }}" class="btn-book">Book Now</a>
+            </div>
         </div>
     </header>
 

@@ -80,11 +80,12 @@
                 </a>
                 <a href="{{ url_for('dining') }}" class="room-card">
                     <div class="room-img slider">
-                        {% for photo in ['dining-4.jpg', 'dining-3.jpg', 'bar_lounge.jpeg', 'dining-5.jpg', 'dining-2.jpg'] %}
+                        {% for photo in ['dining-4.jpg', 'dining-3.jpg', 'bar_lounge.jpeg', 'dining-2.jpg'] %}
                         <img class="slide{% if loop.first %} active{% endif %}"
                              src="{{ url_for('static', filename=photo) }}"
                              alt="Lekki Suites dining and bar" loading="lazy">
                         {% endfor %}
+                        <span class="card-cta">Order Food &rarr;</span>
                     </div>
                     <div class="room-info">
                         <h3>Dining</h3>

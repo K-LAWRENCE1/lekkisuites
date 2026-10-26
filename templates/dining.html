@@ -66,18 +66,21 @@
         </div>
     </section>
 
-    <!-- ===== FLOATING ORDER CART ===== -->
+    <!-- ===== FLOATING ORDER CART (only when there is an order) ===== -->
+    {% if cart %}
+    {% set cart_qty = cart|sum(attribute='qty') %}
     <aside class="order-cart" id="orderCart">
         <div class="order-cart-head">
-            <h3>Your Order</h3>
-            {% if cart %}
-            <form method="POST" action="{{ url_for('cart_clear') }}#menu">
-                <button type="submit" class="btn-clear-cart">Clear</button>
-            </form>
-            {% endif %}
+            <h3>Your Order <span class="cart-count">{{ cart_qty }}</span></h3>
+            <div class="cart-head-actions">
+                <button type="button" class="cart-toggle" onclick="toggleCart(this)" aria-expanded="false">View</button>
+                <form method="POST" action="{{ url_for('cart_clear') }}#menu">
+                    <button type="submit" class="btn-clear-cart">Clear</button>
+                </form>
+            </div>
         </div>
 
-        {% if cart %}
+        <div class="cart-body">
             <ul class="cart-items">
                 {% for item in cart %}
                 <li>
@@ -106,10 +109,9 @@
                 <span>&#8358;{{ "{:,}".format(cart_total) }}</span>
             </div>
             <a href="{{ url_for('checkout') }}" class="btn-gold btn-checkout">Checkout &rarr;</a>
-        {% else %}
-            <p class="cart-empty">Your order is empty.<br>Add items from the menu to get started.</p>
-        {% endif %}
+        </div>
     </aside>
+    {% endif %}
 
 {% endblock %}
 
@@ -130,6 +132,15 @@ function showCategory(cat, btn) {
     });
     btn.classList.add('active');
 }
+// Collapse / expand the order cart (mobile)
+function toggleCart(btn) {
+    var cart = document.getElementById('orderCart');
+    if (!cart) return;
+    var open = cart.classList.toggle('open');
+    btn.textContent = open ? 'Hide' : 'View';
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 // On page load, show food only
 document.addEventListener('DOMContentLoaded', function() {
     showCategory('food', document.querySelector('.menu-tab'));
