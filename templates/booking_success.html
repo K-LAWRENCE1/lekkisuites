@@ -29,6 +29,8 @@
                     <div class="ticket-item"><span class="ticket-label">Check-in</span><span class="ticket-val">{{ check_in }}</span></div>
                     <div class="ticket-item"><span class="ticket-label">Check-out</span><span class="ticket-val">{{ check_out }}</span></div>
                     <div class="ticket-item"><span class="ticket-label">Guests</span><span class="ticket-val">{{ guests }}</span></div>
+                    <div class="ticket-item"><span class="ticket-label">Nights</span><span class="ticket-val">{{ nights }}</span></div>
+                    <div class="ticket-item"><span class="ticket-label">Total</span><span class="ticket-val">&#8358; {{ '{:,}'.format(total_amount) }}</span></div>
                 </div>
 
                 <div class="payment-box">
@@ -39,7 +41,18 @@
                         <tr><th>Account Name</th><td>{{ payment.account_name }}</td></tr>
                         <tr><th>Account Number</th><td><strong>{{ payment.account_number }}</strong></td></tr>
                     </table>
-                    <a href="https://wa.me/{{ payment.whatsapp }}" target="_blank" rel="noopener" class="btn-gold">Send Receipt on WhatsApp</a>
+                    {% set wa_text = 'Hello Lekki Suites, I have just booked a room.' ~ '\n\n'
+                        ~ 'Ticket: ' ~ ticket_id ~ '\n'
+                        ~ 'Name: ' ~ name ~ '\n'
+                        ~ 'Phone: ' ~ phone ~ '\n'
+                        ~ 'Room: ' ~ room_type ~ '\n'
+                        ~ 'Check-in: ' ~ check_in ~ '\n'
+                        ~ 'Check-out: ' ~ check_out ~ '\n'
+                        ~ 'Guests: ' ~ guests ~ '\n'
+                        ~ 'Nights: ' ~ nights ~ '\n'
+                        ~ 'Total: NGN ' ~ '{:,}'.format(total_amount) ~ '\n\n'
+                        ~ 'I have paid. Sending my receipt now.' %}
+                    <a href="https://wa.me/{{ payment.whatsapp }}?text={{ wa_text | urlencode }}" target="_blank" rel="noopener" class="btn-gold">Confirm Booking on WhatsApp</a>
                 </div>
 
                 <div class="ticket-note">

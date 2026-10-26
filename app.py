@@ -2,10 +2,15 @@
 # This is the main Flask application file.
 # Flask is a lightweight web framework that lets us serve web pages.
 
+import csv
+import io
 import json
+import os
 import sqlite3
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, date
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
 
 # Create the Flask application
 app = Flask(__name__)
@@ -25,11 +30,66 @@ PAYMENT = {
     "whatsapp": "2348092299428",
 }
 
+# --- Email notifications (fix28) ---
+# Set these in Render > Environment: SMTP_USER, SMTP_PASS, HOTEL_EMAIL
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+HOTEL_EMAIL = os.environ.get("HOTEL_EMAIL", "")
+
+
+def build_receipt(row, nights, amount):
+    """Receipt text for a paid booking."""
+    return (
+        "PAYMENT RECEIVED - Lekki Suites\n\n"
+        "Ticket:    {ticket}\n"
+        "Name:      {name}\n"
+        "Room:      {room}\n"
+        "Check-in:  {check_in}\n"
+        "Check-out: {check_out}\n"
+        "Guests:    {guests}\n"
+        "Nights:    {nights}\n"
+        "Amount:    NGN {total:,}\n"
+        "Status:    PAID\n\n"
+        "Show this ticket at reception on arrival.\n"
+        "1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+        "Phone/WhatsApp: +234 809 229 9428\n"
+        "https://lekkisuites.com/ticket"
+    ).format(
+        ticket=row["ticket_id"], name=row["name"], room=row["room_type"],
+        check_in=row["check_in"], check_out=row["check_out"],
+        guests=row["guests"], nights=nights, total=amount,
+    )
+
+
+def send_email(to_addr, subject, body):
+    """Send one plain-text email. Never raises - returns True/False."""
+    if not to_addr or not SMTP_USER or not SMTP_PASS:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["From"] = "Lekki Suites <{}>".format(SMTP_USER)
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        msg.set_content(body)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        return True
+    except Exception as err:
+        app.logger.warning("Email to %s failed: %s", to_addr, err)
+        return False
+
+
 # --- Room prices (per night), used to estimate revenue ---
 ROOM_PRICES = {
-    "Standard Room": 25000,
-    "Deluxe Room": 45000,
-    "Executive Suite": 80000,
+    "Standard Room": 40000,
+    "Executive Room": 45000,
+    "Deluxe Room": 50000,
+    "Deluxe Room (2 Beds)": 55000,
+    "Executive Suite": 45000,
 }
 
 
@@ -187,6 +247,12 @@ def init_db():
         conn.execute("ALTER TABLE bookings ADD COLUMN ticket_id TEXT")
     if "status" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'Pending'")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN notes TEXT")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN updated_at TEXT")
+    if "room_no" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
 
     # --- Food orders table (room service) ---
     conn.execute(
@@ -252,8 +318,19 @@ def ticket_display(b):
       - expired  -> the check-out date has passed
     """
     status = b["status"] if b["status"] else "Pending"
-    if status != "Confirmed":
+
+    # Reception-only states that override the date-based ones (fix32).
+    if status == "Cancelled":
+        return ("cancelled", "Cancelled")
+    if status == "No-show":
+        return ("noshow", "No-show")
+    if status == "Checked Out":
+        return ("expired", "Checked Out")
+
+    if status not in ("Confirmed", "Checked In"):
         return ("pending", "Pending Payment")
+    if status == "Checked In":
+        return ("active", "Checked In")
     try:
         today = date.today()
         ci = date.fromisoformat(b["check_in"])
@@ -313,10 +390,23 @@ def cart_total(cart=None):
     return sum(i["price"] * i["qty"] for i in cart)
 
 
+# --- Guest reviews shown on the home page (fix32) ---
+# Two knobs: the public Google rating, and real quotes once you have them.
+# REVIEWS stays empty until you paste genuine guest words in here — nothing
+# on this site invents a review.
+#   {"name": "Ada O.", "text": "Quiet, clean and the staff were kind.", "when": "Oct 2026"}
+GOOGLE_RATING = {
+    "score": 3.9,
+    "count": 238,
+    "url": "https://www.google.com/search?q=Lekki+Suites+Lekki+Phase+1+Lagos+reviews",
+}
+REVIEWS = []
+
+
 # The route "/" is the home page of the website.
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("index.html", rating=GOOGLE_RATING, reviews=REVIEWS)
 
 
 # Rooms page - shows the rooms & suites.
@@ -339,6 +429,26 @@ def dining():
 
 
 # Contact page - shows address, phone, email and map.
+# ===== SEO: robots.txt + sitemap.xml (fix30) =====
+SITE_URL = "https://lekkisuites.com"
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: {}/sitemap.xml\n".format(SITE_URL)
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket"]
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for page in pages:
+        parts.append("<url><loc>{}{}</loc><changefreq>weekly</changefreq></url>".format(SITE_URL, page))
+    parts.append("</urlset>")
+    return Response("\n".join(parts), mimetype="application/xml")
+
+
 @app.route("/contact")
 def contact():
     return render_template("contact.html")
@@ -394,6 +504,39 @@ def book():
         log_activity("Booking", "New Booking", ticket_id,
                      "{} booked {} for {} to {} ({} guests)".format(name, room_type, check_in, check_out, guests))
 
+        # Work out the number of nights and the total price, so the guest sees it on the ticket.
+        try:
+            nights = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+        except ValueError:
+            nights = 0
+        nights = max(nights, 1) if nights > 0 else 0
+        total_amount = ROOM_PRICES.get(room_type, 0) * nights
+
+        # Email the guest, plus a copy to the hotel as a backup of the booking.
+        message_body = (
+            "Hello {name},\n\n"
+            "Your booking at Lekki Suites is confirmed.\n\n"
+            "Ticket:    {ticket}\n"
+            "Room:      {room}\n"
+            "Check-in:  {check_in}\n"
+            "Check-out: {check_out}\n"
+            "Guests:    {guests}\n"
+            "Nights:    {nights}\n"
+            "Total:     NGN {total:,}\n\n"
+            "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+            "Phone/WhatsApp: +234 809 229 9428\n\n"
+            "Check your booking any time at https://lekkisuites.com/ticket "
+            "using ticket number {ticket}.\n\n"
+            "Please pay at the hotel on arrival.\n\n"
+            "Lekki Suites"
+        ).format(
+            name=name, ticket=ticket_id, room=room_type, check_in=check_in,
+            check_out=check_out, guests=guests, nights=nights, total=total_amount,
+        )
+        send_email(email, "Booking {} confirmed - Lekki Suites".format(ticket_id), message_body)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "New booking {} - {}".format(ticket_id, name), message_body)
+
         # Send the guest to the confirmation page with their ticket + payment details.
         return render_template(
             "booking_success.html",
@@ -405,6 +548,8 @@ def book():
             phone=phone,
             ticket_id=ticket_id,
             payment=PAYMENT,
+            nights=nights,
+            total_amount=total_amount,
         )
 
     # GET request - just show the empty form.
@@ -577,8 +722,9 @@ def admin():
     if not session.get("admin_logged_in"):
         return render_template("admin_login.html")
 
-    # Optional search (by name or ticket number).
+    # Optional search (name, ticket number, phone) and status filter.
     q = request.args.get("q", "").strip().lower()
+    view = request.args.get("view", "all")  # all | today | pending | paid | closed
 
     conn = get_db()
     bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
@@ -639,10 +785,39 @@ def admin():
                 nights = 0
             revenue += ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
 
-    # --- Filter rows by the search query ---
+    # --- Today's arrivals: due to check in today, not yet cancelled ---
+    today_str = today.isoformat()
+    arrivals = [b for b in bookings
+                if (b["check_in"] or "") == today_str
+                and (b["status"] or "Pending") not in ("Cancelled", "No-show", "Checked Out")]
+    departing = [b for b in bookings
+                 if (b["check_out"] or "") == today_str
+                 and (b["status"] or "") == "Checked In"]
+    in_house = sum(1 for b in bookings if (b["status"] or "") == "Checked In")
+
+    # --- Filter rows by search + the selected view tab ---
+    def matches_view(b):
+        st = b["status"] or "Pending"
+        if view == "today":
+            return (b["check_in"] or "") == today_str or st == "Checked In"
+        if view == "pending":
+            return st == "Pending"
+        if view == "paid":
+            return st in ("Confirmed", "Checked In")
+        if view == "closed":
+            return st in ("Checked Out", "Cancelled", "No-show")
+        return True
+
     rows = []
     for b in bookings:
-        if q and q not in (b["name"] or "").lower() and q not in (b["ticket_id"] or "").lower():
+        if q and not (
+            q in (b["name"] or "").lower()
+            or q in (b["ticket_id"] or "").lower()
+            or q in (b["phone"] or "").lower()
+            or q in (b["room_no"] or "").lower()
+        ):
+            continue
+        if not matches_view(b):
             continue
         cls, label = ticket_display(b)
         rows.append((b, cls, label))
@@ -655,9 +830,14 @@ def admin():
         "upcoming": upcoming,
         "expired": expired,
         "revenue": revenue,
+        "arrivals": len(arrivals),
+        "in_house": in_house,
+        "departing": len(departing),
     }
     return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""),
-                           new_orders_count=new_orders_count)
+                           view=view, arrivals=arrivals, departing=departing,
+                           new_orders_count=new_orders_count,
+                           today_label=today.strftime("%a %d %b"))
 
 
 # Mark a booking as paid / confirmed.
@@ -679,7 +859,129 @@ def admin_confirm(booking_id):
         log_activity("Booking", "Payment Confirmed", b["ticket_id"],
                      "{} marked as Paid - {} ({} nights x {}) = {}".format(
                          b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
+
+        # Email the receipt to the guest (only if they were not already marked paid).
+        if b["status"] != "Confirmed":
+            receipt = build_receipt(b, max(nights, 0), amount)
+            if b["email"]:
+                send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+            if HOTEL_EMAIL:
+                send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
     return redirect(url_for("admin"))
+
+
+# ===== ADMIN: RECEPTION ACTIONS (fix32) =====
+
+# The whole point of a front desk is changing a booking's state as the guest
+# moves through it. One endpoint handles every move so the templates stay simple.
+BOOKING_ACTIONS = {
+    "paid": ("Confirmed", "Marked as Paid"),
+    "checkin": ("Checked In", "Checked In"),
+    "checkout": ("Checked Out", "Checked Out"),
+    "cancel": ("Cancelled", "Cancelled"),
+    "noshow": ("No-show", "Marked No-show"),
+    "reopen": ("Confirmed", "Reopened"),
+}
+
+
+@app.route("/admin/booking/<int:booking_id>/action", methods=["POST"])
+def admin_booking_action(booking_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    action = request.form.get("action", "")
+    if action not in BOOKING_ACTIONS:
+        flash("Unknown action.", "error")
+        return redirect(url_for("admin"))
+
+    new_status, label = BOOKING_ACTIONS[action]
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not b:
+        conn.close()
+        return redirect(url_for("admin"))
+
+    conn.execute(
+        "UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?",
+        (new_status, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+
+    log_activity("Booking", label, b["ticket_id"],
+                 "{} - {} -> {}".format(b["name"], b["status"] or "Pending", new_status))
+
+    # Marking paid still sends the receipt/confirmation emails.
+    if action == "paid" and (b["status"] or "") != "Confirmed":
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+        receipt = build_receipt(b, max(nights, 0), amount)
+        if b["email"]:
+            send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
+
+    return redirect(url_for("admin", view=request.form.get("view", "all"),
+                            q=request.form.get("q", "")))
+
+
+@app.route("/admin/booking/<int:booking_id>/update", methods=["POST"])
+def admin_booking_update(booking_id):
+    """Save the reception notes and the physical room number for a booking."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    notes = (request.form.get("notes") or "").strip()[:1000]
+    room_no = (request.form.get("room_no") or "").strip()[:20]
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE bookings SET notes = ?, room_no = ?, updated_at = ? WHERE id = ?",
+        (notes, room_no, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Notes Updated", str(booking_id), notes[:120] or room_no)
+    return redirect(url_for("admin", view=request.form.get("view", "all"),
+                            q=request.form.get("q", "")))
+
+
+@app.route("/admin/bookings.csv")
+def admin_bookings_csv():
+    """Download every booking as a spreadsheet file (backup before a redeploy)."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
+    conn.close()
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Ticket", "Name", "Phone", "Email", "Room Type", "Room No",
+                     "Check-in", "Check-out", "Nights", "Guests", "Status",
+                     "Amount (NGN)", "Booked At", "Notes"])
+    for b in bookings:
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0) if b["status"] != "Pending" else 0
+        writer.writerow([
+            b["ticket_id"], b["name"], b["phone"], b["email"], b["room_type"],
+            b["room_no"], b["check_in"], b["check_out"], max(nights, 0), b["guests"],
+            b["status"] or "Pending", amount, b["booked_at"], b["notes"],
+        ])
+
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=lekkisuites-bookings-{}.csv".format(stamp)},
+    )
 
 
 # ===== ADMIN: FOOD ORDERS =====
@@ -756,4 +1058,4 @@ def admin_logout():
 
 # This lets us run the website by typing:  python app.py
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
