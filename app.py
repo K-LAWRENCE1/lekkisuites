@@ -6,7 +6,6 @@ import csv
 import io
 import json
 import os
-import sqlite3
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, date
@@ -18,8 +17,9 @@ app.secret_key = "lekkisuites-secret-2026"
 
 
 # --- Database helper ---
-# We store every booking and food order in a small SQLite database file (bookings.db).
-DB_NAME = "bookings.db"
+# db.py decides where data lives: the bookings.db file locally, or Postgres on Render
+# (it switches automatically as soon as a DATABASE_URL environment variable exists).
+from db import get_db
 
 
 # --- Payment details shown to guests on the confirmation page ---
@@ -214,12 +214,6 @@ for _section in MENU:
         MENU_BY_ID[_item["id"]] = _item
 
 
-def get_db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row  # lets us access columns by name
-    return conn
-
-
 def init_db():
     """Create the bookings + food_orders tables if they do not exist, and upgrade old ones."""
     conn = get_db()
@@ -242,7 +236,7 @@ def init_db():
         """
     )
     # Upgrade older databases: add new columns if they are missing.
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()}
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()}
     if "ticket_id" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN ticket_id TEXT")
     if "status" not in cols:
