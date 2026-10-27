@@ -182,6 +182,13 @@
                                 <button type="submit" class="btn-ghost btn-danger">Cancel</button>
                             </form>
                             {% endif %}
+
+                            <!-- fix35: permanently remove a row (test data, duplicates, mistakes) -->
+                            <form method="POST" action="{{ url_for('admin_booking_delete', booking_id=b.id) }}" onsubmit="return confirm('Delete ticket {{ b.ticket_id }} for good? This cannot be undone.');">
+                                <input type="hidden" name="view" value="{{ view }}">
+                                <input type="hidden" name="q" value="{{ q }}">
+                                <button type="submit" class="btn-ghost btn-danger">Delete</button>
+                            </form>
                         </div>
 
                         <details class="bc-more">

@@ -926,6 +926,29 @@ def admin_booking_action(booking_id):
                             q=request.form.get("q", "")))
 
 
+@app.route("/admin/booking/<int:booking_id>/delete", methods=["POST"])
+def admin_booking_delete(booking_id):
+    """fix35: permanently remove one booking row (test data, duplicates)."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not b:
+        conn.close()
+        return redirect(url_for("admin"))
+
+    conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
+
+    log_activity("Booking", "Deleted", b["ticket_id"],
+                 "{} - {} ({})".format(b["name"], b["room_type"], b["check_in"]))
+    flash("Ticket {} deleted.".format(b["ticket_id"]), "success")
+    return redirect(url_for("admin", view=request.form.get("view", "all"),
+                            q=request.form.get("q", "")))
+
+
 @app.route("/admin/booking/<int:booking_id>/update", methods=["POST"])
 def admin_booking_update(booking_id):
     """Save the reception notes and the physical room number for a booking."""
