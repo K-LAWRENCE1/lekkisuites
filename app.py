@@ -42,6 +42,24 @@ HOTEL_EMAIL = os.environ.get("HOTEL_EMAIL", "")
 # (something@smtp-brevo.com) is NOT a real mailbox, so it must not be used here.
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or HOTEL_EMAIL or SMTP_USER
 
+# --- Contact details used across the site (fix39) ---
+# The footer/contact page now show these as tap-to-call / tap-to-mail links.
+# They follow the HOTEL_EMAIL env var, so when the reservations@ mailbox exists
+# you change one value in Render and every page updates by itself.
+HOTEL_PHONE_DISPLAY = "+234 809 229 9428"
+HOTEL_PHONE_TEL = "+2348092299428"
+HOTEL_WHATSAPP = "2348092299428"
+
+
+@app.context_processor
+def inject_contact_details():
+    return {
+        "hotel_phone_display": HOTEL_PHONE_DISPLAY,
+        "hotel_phone_tel": HOTEL_PHONE_TEL,
+        "hotel_whatsapp": HOTEL_WHATSAPP,
+        "hotel_email": HOTEL_EMAIL or "reservations@lekkisuites.com",
+    }
+
 
 def build_receipt(row, nights, amount):
     """Receipt text for a paid booking."""

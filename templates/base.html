@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=27) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=28) }}">
 
     <!-- PWA (fix36): lets guests install Lekki Suites on their home screen -->
     <link rel="manifest" href="/manifest.webmanifest">
@@ -20,6 +20,33 @@
     <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='icons/favicon-64.png') }}">
 </head>
 <body>
+
+    <!-- Install bar (fix38): shows in every browser, including WhatsApp / Instagram -->
+    <div id="pwa-bar" style="display:none;background:#0f1c2e;color:#f9f7f2;padding:10px 14px;font-family:Inter,system-ui,sans-serif;font-size:13px;line-height:1.35;border-bottom:2px solid #c9a227;">
+        <div style="display:flex;align-items:center;gap:10px;max-width:1100px;margin:0 auto;">
+            <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="" width="30" height="30" style="border-radius:7px;flex:0 0 auto;">
+            <div style="flex:1;min-width:0;">
+                <strong style="display:block;font-size:13.5px;color:#c9a227;">Get the Lekki Suites app</strong>
+                <span id="pwa-bar-text">Add our icon to your home screen — opens like an app.</span>
+            </div>
+            <button id="pwa-bar-btn" type="button" style="background:#c9a227;color:#0f1c2e;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:12.5px;white-space:nowrap;cursor:pointer;">Add to Home Screen</button>
+            <button id="pwa-bar-close" type="button" aria-label="Dismiss" style="background:transparent;border:none;color:#9aa3b2;font-size:20px;line-height:1;padding:2px 4px;cursor:pointer;">&times;</button>
+        </div>
+    </div>
+
+    <!-- Install help sheet (fix38): device-specific steps, opened by the bar button -->
+    <div id="pwa-modal" style="display:none;position:fixed;inset:0;background:rgba(4,10,18,.62);z-index:10000;padding:18px;overflow:auto;">
+        <div style="max-width:420px;margin:32px auto;background:#ffffff;border-radius:16px;padding:22px 20px;font-family:Inter,system-ui,sans-serif;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+            <button id="pwa-modal-x" type="button" aria-label="Close" style="position:absolute;top:10px;right:12px;background:transparent;border:none;font-size:24px;line-height:1;color:#8a8a93;cursor:pointer;">&times;</button>
+            <h3 style="margin:0 0 6px;font-size:17px;color:#0f1c2e;">Add Lekki Suites to your phone</h3>
+            <p id="pwa-modal-lead" style="margin:0 0 14px;font-size:13px;color:#6b6b76;line-height:1.45;">It opens like an app — full screen, no browser bar.</p>
+            <div id="pwa-modal-body" style="font-size:13.5px;color:#333;line-height:1.55;"></div>
+            <div style="margin-top:16px;display:flex;gap:8px;">
+                <button id="pwa-modal-copy" type="button" style="flex:1;background:#f1f1f5;color:#0f1c2e;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;">Copy website link</button>
+                <button id="pwa-modal-close" type="button" style="flex:1;background:#0f1c2e;color:#f9f7f2;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;">Got it</button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== NAVBAR ===== -->
     <header class="navbar">
@@ -59,7 +86,13 @@
             </div>
             <div>
                 <h4>Contact</h4>
-                <p>+234 809 229 9428<br>reservations@lekkisuites.com<br>1 Kayode Otitoju, Lekki Phase 1, Lagos</p>
+                <!-- fix39: every contact detail is now tappable on a phone -->
+                <p class="footer-contact">
+                    <a href="tel:{{ hotel_phone_tel }}">&#128222; {{ hotel_phone_display }}</a><br>
+                    <a href="https://wa.me/{{ hotel_whatsapp }}" target="_blank" rel="noopener">&#128172; Chat on WhatsApp</a><br>
+                    <a href="mailto:{{ hotel_email }}">&#9993; {{ hotel_email }}</a><br>
+                    <a href="https://www.google.com/maps/search/?api=1&amp;query=Lekki%20Suites%201%20Kayode%20Otitoju%20Lekki%20Phase%201%20Lagos" target="_blank" rel="noopener">&#128205; 1 Kayode Otitoju, Lekki Phase 1, Lagos</a>
+                </p>
             </div>
         </div>
         <div class="footer-bottom">
@@ -101,13 +134,7 @@
         })();
     </script>
 
-    <!-- PWA (fix36): register the service worker + offer a small install button -->
-    <div id="pwa-install" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9999;">
-        <button id="pwa-install-btn" type="button"
-                style="background:#c9a227;color:#0f1c2e;border:none;border-radius:999px;padding:12px 20px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;">
-            Install app
-        </button>
-    </div>
+    <!-- PWA (fix36 / fix38): service worker + universal install bar with per-device help -->
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
@@ -115,31 +142,130 @@
             });
         }
 
-        // Chrome/Android fires this when the site qualifies as installable.
-        var deferredPrompt = null;
-        var wrap = document.getElementById('pwa-install');
-        var btn = document.getElementById('pwa-install-btn');
+        (function () {
+            var bar = document.getElementById('pwa-bar');
+            var barText = document.getElementById('pwa-bar-text');
+            var btn = document.getElementById('pwa-bar-btn');
+            var closeBtn = document.getElementById('pwa-bar-close');
+            var modal = document.getElementById('pwa-modal');
+            var modalBody = document.getElementById('pwa-modal-body');
+            var modalLead = document.getElementById('pwa-modal-lead');
+            if (!bar || !modal) return;
 
-        window.addEventListener('beforeinstallprompt', function (e) {
-            e.preventDefault();
-            deferredPrompt = e;
-            if (wrap) wrap.style.display = 'block';
-        });
+            // Already running as an installed app? Then nothing to offer.
+            var standalone = window.matchMedia('(display-mode: standalone)').matches ||
+                             window.navigator.standalone === true;
+            if (standalone) return;
 
-        if (btn) {
-            btn.addEventListener('click', function () {
-                if (!deferredPrompt) { if (wrap) wrap.style.display = 'none'; return; }
-                deferredPrompt.prompt();
-                deferredPrompt.userChoice.then(function () {
-                    deferredPrompt = null;
-                    if (wrap) wrap.style.display = 'none';
-                });
+            // Guest dismissed it? Stay quiet for 30 days.
+            try {
+                var closedAt = parseInt(localStorage.getItem('ls_pwa_bar_closed') || '0', 10);
+                if (closedAt && (Date.now() - closedAt) < 30 * 24 * 60 * 60 * 1000) return;
+            } catch (e) {}
+
+            var ua = navigator.userAgent || '';
+            var isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.indexOf('Mac') > -1 && 'ontouchend' in document);
+            var isAndroid = /Android/.test(ua);
+            // WhatsApp, Instagram, Facebook, Messenger, TikTok, Snapchat in-app viewers.
+            var inApp = /(FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|Snapchat|TikTok|musical_ly|MicroMessenger|Pinterest)/i.test(ua) ||
+                        // iOS in-app browsers hide the "Safari" token.
+                        (isIOS && !/Safari/.test(ua));
+            var deferredPrompt = null;
+
+            function hideBar() { bar.style.display = 'none'; }
+            function openModal(html, lead) {
+                modalBody.innerHTML = html;
+                modalLead.textContent = lead;
+                modal.style.display = 'block';
+            }
+            function closeModal() { modal.style.display = 'none'; }
+            function steps(items) {
+                return '<ol style="margin:0;padding-left:20px;">' +
+                    items.map(function (t) { return '<li style="margin-bottom:9px;">' + t + '</li>'; }).join('') +
+                    '</ol>';
+            }
+
+            // On Android Chrome this fires when a real one-tap install is possible.
+            window.addEventListener('beforeinstallprompt', function (e) {
+                e.preventDefault();
+                deferredPrompt = e;
             });
-        }
+            window.addEventListener('appinstalled', function () { hideBar(); closeModal(); });
 
-        window.addEventListener('appinstalled', function () {
-            if (wrap) wrap.style.display = 'none';
-        });
+            btn.addEventListener('click', function () {
+                // 1. Best case: the browser can genuinely install it in one tap.
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(function () {
+                        deferredPrompt = null;
+                        hideBar();
+                    });
+                    return;
+                }
+                // 2. Inside WhatsApp / Instagram / Facebook: those browsers cannot install anything.
+                if (inApp) {
+                    openModal(steps([
+                        'Tap the <strong>&#8942;</strong> menu (or <strong>Share</strong>) at the top of this screen.',
+                        'Choose <strong>Open in Safari</strong> (iPhone) or <strong>Open in Chrome</strong> (Android).',
+                        'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
+                    ]), 'You are inside an app browser — it cannot add apps to your phone. Open the site in Safari or Chrome first.');
+                    return;
+                }
+                // 3. iPhone Safari: Apple has no install button, only the Share sheet.
+                if (isIOS) {
+                    openModal(steps([
+                        'Tap the <strong>Share</strong> button — the square with an arrow pointing up.',
+                        'Scroll down the list until you see <strong>Add to Home Screen</strong>.',
+                        'Tap it, then tap <strong>Add</strong> in the top corner.'
+                    ]), 'Safari only allows this through the Share menu — there is no install button on iPhone.');
+                    return;
+                }
+                // 4. Android browser without the install event.
+                if (isAndroid) {
+                    openModal(steps([
+                        'Tap the <strong>&#8942;</strong> menu in your browser (top right).',
+                        'Tap <strong>Install app</strong> or <strong>Add to Home screen</strong>.',
+                        'Confirm with <strong>Install</strong>.'
+                    ]), 'Two taps in your browser menu and the icon appears on your home screen.');
+                    return;
+                }
+                // 5. Desktop.
+                openModal(steps([
+                    'Look for the <strong>install icon</strong> in the address bar, or open the browser menu.',
+                    'Choose <strong>Install Lekki Suites</strong> / <strong>Install app</strong>.',
+                    'It opens in its own window like a desktop app.'
+                ]), 'Installing on a computer puts Lekki Suites in your dock or taskbar.');
+            });
+
+            closeBtn.addEventListener('click', function () {
+                try { localStorage.setItem('ls_pwa_bar_closed', String(Date.now())); } catch (e) {}
+                hideBar();
+            });
+
+            document.getElementById('pwa-modal-x').addEventListener('click', closeModal);
+            document.getElementById('pwa-modal-close').addEventListener('click', closeModal);
+            modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+
+            var copyBtn = document.getElementById('pwa-modal-copy');
+            copyBtn.addEventListener('click', function () {
+                var link = 'https://lekkisuites.com';
+                function done() { copyBtn.textContent = 'Link copied ✓'; setTimeout(function () { copyBtn.textContent = 'Copy website link'; }, 2000); }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(link).then(done).catch(done);
+                } else {
+                    var t = document.createElement('textarea');
+                    t.value = link; document.body.appendChild(t); t.select();
+                    try { document.execCommand('copy'); } catch (e) {}
+                    document.body.removeChild(t); done();
+                }
+            });
+
+            // The bar shows everywhere — WhatsApp, Instagram, desktop, all of it.
+            if (inApp) {
+                barText.innerHTML = 'Open this page in Safari/Chrome to add the app.';
+            }
+            bar.style.display = 'block';
+        })();
     </script>
 
     {% block scripts %}{% endblock %}
