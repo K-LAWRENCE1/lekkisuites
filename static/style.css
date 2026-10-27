@@ -1165,13 +1165,12 @@ body.cart-open .wa-bubble {
         font-size: 36px;
     }
 
-    /* fix43/fix49: back to the lower resting spot. The cart no longer needs the
-       circle to climb the screen because it now hides itself whenever the cart
-       holds something (see body.cart-open). */
+    /* fix51: back to the original low resting spot, near the bottom edge.
+       It only needs to step aside while the cart holds food (body.cart-open). */
     .wa-bubble {
         width: 54px;
         height: 54px;
-        bottom: 38vh;
+        bottom: 96px;
         right: 14px;
     }
 

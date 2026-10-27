@@ -1058,6 +1058,56 @@ def admin_order_restore(order_id):
     return back_to_admin("admin_history")
 
 
+@app.route("/admin/history/booking/<int:booking_id>/purge", methods=["POST"])
+def admin_booking_purge(booking_id):
+    """fix51: throw a deleted ticket away for good (only reachable from History).
+
+    The ticket number is still never reused - the sequence only moves forward.
+    """
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute(
+        "SELECT * FROM bookings WHERE id = ? AND deleted_at IS NOT NULL",
+        (booking_id,)).fetchone()
+    if b is None:
+        conn.close()
+        flash("That ticket is not in History.", "error")
+        return back_to_admin("admin_history")
+
+    conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Purged", b["ticket_id"] or str(booking_id),
+                 "{} - deleted from History for good".format(b["name"]))
+    flash("Ticket {} deleted for good.".format(b["ticket_id"] or booking_id), "success")
+    return back_to_admin("admin_history")
+
+
+@app.route("/admin/history/order/<int:order_id>/purge", methods=["POST"])
+def admin_order_purge(order_id):
+    """fix51: throw a deleted food order away for good."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute(
+        "SELECT * FROM food_orders WHERE id = ? AND deleted_at IS NOT NULL",
+        (order_id,)).fetchone()
+    if o is None:
+        conn.close()
+        flash("That order is not in History.", "error")
+        return back_to_admin("admin_history")
+
+    conn.execute("DELETE FROM food_orders WHERE id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Food", "Purged", o["order_ref"], "{} - deleted from History for good".format(o["guest_name"]))
+    flash("Order {} deleted for good.".format(o["order_ref"]), "success")
+    return back_to_admin("admin_history")
+
+
 @app.route("/admin/history")
 def admin_history():
     """fix40: everything that was deleted, with a Restore button."""

@@ -50,6 +50,10 @@
                             <form method="POST" action="{{ url_for('admin_booking_restore', booking_id=b.id) }}">
                                 <button type="submit" class="btn-confirm">Restore</button>
                             </form>
+                            <!-- fix51: wipe it for good. Only works from History. -->
+                            <form method="POST" action="{{ url_for('admin_booking_purge', booking_id=b.id) }}" onsubmit="return confirm('Delete ticket {{ b.ticket_id }} for good?\n\nThis cannot be undone. The ticket number will never be reused.');">
+                                <button type="submit" class="btn-danger">Delete for good</button>
+                            </form>
                         </div>
                     </article>
                     {% endfor %}
@@ -102,6 +106,9 @@
                         <div class="order-actions">
                             <form method="POST" action="{{ url_for('admin_order_restore', order_id=o.id) }}" style="display:inline;">
                                 <button type="submit" class="btn-confirm">Restore</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('admin_order_purge', order_id=o.id) }}" style="display:inline;" onsubmit="return confirm('Delete order {{ o.order_ref }} for good?\n\nThis cannot be undone.');">
+                                <button type="submit" class="btn-danger">Delete for good</button>
                             </form>
                         </div>
                     </div>
