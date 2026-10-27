@@ -8,6 +8,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=27) }}">
+
+    <!-- PWA (fix36): lets guests install Lekki Suites on their home screen -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#0f1c2e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lekki Suites">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='icons/favicon-64.png') }}">
 </head>
 <body>
 
@@ -89,6 +99,47 @@
             wa.addEventListener('pointercancel', end);
             wa.addEventListener('click', function (e) { if (moved) { e.preventDefault(); } });
         })();
+    </script>
+
+    <!-- PWA (fix36): register the service worker + offer a small install button -->
+    <div id="pwa-install" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9999;">
+        <button id="pwa-install-btn" type="button"
+                style="background:#c9a227;color:#0f1c2e;border:none;border-radius:999px;padding:12px 20px;font-weight:700;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;">
+            Install app
+        </button>
+    </div>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+        }
+
+        // Chrome/Android fires this when the site qualifies as installable.
+        var deferredPrompt = null;
+        var wrap = document.getElementById('pwa-install');
+        var btn = document.getElementById('pwa-install-btn');
+
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            if (wrap) wrap.style.display = 'block';
+        });
+
+        if (btn) {
+            btn.addEventListener('click', function () {
+                if (!deferredPrompt) { if (wrap) wrap.style.display = 'none'; return; }
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function () {
+                    deferredPrompt = null;
+                    if (wrap) wrap.style.display = 'none';
+                });
+            });
+        }
+
+        window.addEventListener('appinstalled', function () {
+            if (wrap) wrap.style.display = 'none';
+        });
     </script>
 
     {% block scripts %}{% endblock %}

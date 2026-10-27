@@ -9,7 +9,8 @@ import os
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, date
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response
+from flask import (Flask, render_template, request, redirect, url_for, session, flash,
+                   Response, send_from_directory, make_response)
 
 # Create the Flask application
 app = Flask(__name__)
@@ -445,6 +446,26 @@ def sitemap_xml():
         parts.append("<url><loc>{}{}</loc><changefreq>weekly</changefreq></url>".format(SITE_URL, page))
     parts.append("</urlset>")
     return Response("\n".join(parts), mimetype="application/xml")
+
+
+# ===== PWA (fix36): manifest + service worker served from the site root =====
+# A service worker only controls pages at or below its own folder, so /sw.js
+# must live at "/" - that is why these two files are routed by hand instead of
+# being served straight from /static/.
+@app.route("/sw.js")
+def service_worker():
+    resp = make_response(send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript"))
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    resp = make_response(send_from_directory(
+        app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json"))
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
 
 
 @app.route("/contact")
