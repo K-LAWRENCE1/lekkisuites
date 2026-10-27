@@ -1118,9 +1118,18 @@ h2 {
     justify-content: center;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     z-index: 9999;
-    cursor: pointer;
+    cursor: grab;
     touch-action: none;
+    /* fix46: stop iOS long-press callout / text selection stealing the drag */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
     transition: background 0.2s, transform 0.2s, opacity 0.2s;
+}
+
+.wa-bubble:active {
+    cursor: grabbing;
 }
 
 .wa-bubble:hover {
