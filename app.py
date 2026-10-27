@@ -270,6 +270,10 @@ def init_db():
         conn.execute("ALTER TABLE bookings ADD COLUMN updated_at TEXT")
     if "room_no" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
+    # fix40: deleting a booking now only HIDES it (deleted_at is set), so it can
+    # be restored from the History page and its ticket number is never reused.
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN deleted_at TEXT")
 
     # --- Food orders table (room service) ---
     conn.execute(
@@ -289,6 +293,9 @@ def init_db():
         )
         """
     )
+    order_cols = {row["name"] for row in conn.execute("PRAGMA table_info(food_orders)").fetchall()}
+    if "deleted_at" not in order_cols:
+        conn.execute("ALTER TABLE food_orders ADD COLUMN deleted_at TEXT")
 
     # --- Activity log table (history of everything) ---
     conn.execute(
@@ -764,8 +771,15 @@ def admin():
     view = request.args.get("view", "all")  # all | today | pending | paid | closed
 
     conn = get_db()
-    bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
-    food_orders = conn.execute("SELECT * FROM food_orders ORDER BY id DESC").fetchall()
+    bookings = conn.execute(
+        "SELECT * FROM bookings WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
+    food_orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
+    # fix42: how many deleted tickets/orders are sitting in History (badge on the History button).
+    history_count = (
+        conn.execute("SELECT COUNT(*) FROM bookings WHERE deleted_at IS NOT NULL").fetchone()[0]
+        + conn.execute("SELECT COUNT(*) FROM food_orders WHERE deleted_at IS NOT NULL").fetchone()[0]
+    )
     conn.close()
 
     # Count new food orders for the notification badge.
@@ -967,7 +981,11 @@ def admin_booking_action(booking_id):
 
 @app.route("/admin/booking/<int:booking_id>/delete", methods=["POST"])
 def admin_booking_delete(booking_id):
-    """fix35: permanently remove one booking row (test data, duplicates)."""
+    """fix40: move a booking to History instead of erasing it.
+
+    The row stays in the database, so the ticket number is never handed to
+    another guest, and reception can restore it if someone deletes it by mistake.
+    """
     if not session.get("admin_logged_in"):
         return redirect(url_for("admin"))
 
@@ -977,15 +995,93 @@ def admin_booking_delete(booking_id):
         conn.close()
         return redirect(url_for("admin"))
 
-    conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+    conn.execute("UPDATE bookings SET deleted_at = ? WHERE id = ?",
+                 (datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id))
     conn.commit()
     conn.close()
 
     log_activity("Booking", "Deleted", b["ticket_id"],
-                 "{} - {} ({})".format(b["name"], b["room_type"], b["check_in"]))
-    flash("Ticket {} deleted.".format(b["ticket_id"]), "success")
+                 "{} - {} ({}) - moved to History".format(b["name"], b["room_type"], b["check_in"]))
+    flash("Ticket {} moved to History.".format(b["ticket_id"]), "success")
     return redirect(url_for("admin", view=request.form.get("view", "all"),
                             q=request.form.get("q", "")))
+
+
+@app.route("/admin/booking/<int:booking_id>/restore", methods=["POST"])
+def admin_booking_restore(booking_id):
+    """fix40: bring a booking back out of History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if b:
+        conn.execute("UPDATE bookings SET deleted_at = NULL WHERE id = ?", (booking_id,))
+        conn.commit()
+        log_activity("Booking", "Restored", b["ticket_id"], b["name"])
+        flash("Ticket {} restored.".format(b["ticket_id"]), "success")
+    conn.close()
+    return redirect(url_for("admin_history"))
+
+
+@app.route("/admin/orders/<int:order_id>/delete", methods=["POST"])
+def admin_order_delete(order_id):
+    """fix40: move a food order to History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute("SELECT * FROM food_orders WHERE id = ?", (order_id,)).fetchone()
+    if o:
+        conn.execute("UPDATE food_orders SET deleted_at = ? WHERE id = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"), order_id))
+        conn.commit()
+        log_activity("Food", "Deleted", o["order_ref"], "{} - moved to History".format(o["guest_name"]))
+        flash("Order {} moved to History.".format(o["order_ref"]), "success")
+    conn.close()
+    return redirect(url_for("admin_orders"))
+
+
+@app.route("/admin/orders/<int:order_id>/restore", methods=["POST"])
+def admin_order_restore(order_id):
+    """fix40: bring a food order back out of History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute("SELECT * FROM food_orders WHERE id = ?", (order_id,)).fetchone()
+    if o:
+        conn.execute("UPDATE food_orders SET deleted_at = NULL WHERE id = ?", (order_id,))
+        conn.commit()
+        log_activity("Food", "Restored", o["order_ref"], o["guest_name"])
+        flash("Order {} restored.".format(o["order_ref"]), "success")
+    conn.close()
+    return redirect(url_for("admin_history"))
+
+
+@app.route("/admin/history")
+def admin_history():
+    """fix40: everything that was deleted, with a Restore button."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    bookings = conn.execute(
+        "SELECT * FROM bookings WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC").fetchall()
+    orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC").fetchall()
+    conn.close()
+
+    parsed_orders = []
+    for o in orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed_orders.append((o, items))
+
+    return render_template("admin_history.html", bookings=bookings, orders=parsed_orders,
+                           new_orders_count=0)
 
 
 @app.route("/admin/booking/<int:booking_id>/update", methods=["POST"])
@@ -1052,7 +1148,8 @@ def admin_orders():
         return redirect(url_for("admin"))
 
     conn = get_db()
-    orders = conn.execute("SELECT * FROM food_orders ORDER BY id DESC").fetchall()
+    orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
     conn.close()
 
     # Count new orders for the notification badge.

@@ -2,7 +2,7 @@
 // Goal: the site opens like an app, and the basic pages still load on a weak network.
 // The admin area is NEVER cached - reception must always see live data.
 
-const CACHE = "lekkisuites-v1";
+const CACHE = "lekkisuites-v2";
 
 // Pages and assets we want available offline.
 const SHELL = [
@@ -13,7 +13,7 @@ const SHELL = [
   "/contact",
   "/book",
   "/ticket",
-  "/static/style.css?v=27",
+  "/static/style.css?v=28",
   "/static/logo.png",
   "/static/manifest.webmanifest",
   "/static/icons/icon-192.png",

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=28) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=29) }}">
 
     <!-- PWA (fix36): lets guests install Lekki Suites on their home screen -->
     <link rel="manifest" href="/manifest.webmanifest">
@@ -204,11 +204,19 @@
                 }
                 // 2. Inside WhatsApp / Instagram / Facebook: those browsers cannot install anything.
                 if (inApp) {
-                    openModal(steps([
-                        'Tap the <strong>&#8942;</strong> menu (or <strong>Share</strong>) at the top of this screen.',
-                        'Choose <strong>Open in Safari</strong> (iPhone) or <strong>Open in Chrome</strong> (Android).',
-                        'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
-                    ]), 'You are inside an app browser — it cannot add apps to your phone. Open the site in Safari or Chrome first.');
+                    if (isIOS) {
+                        openModal(steps([
+                            'Tap the <strong>Share</strong> icon (the square with an arrow) at the bottom of the screen.',
+                            'Choose <strong>Open in Safari</strong>. If that option is missing, tap <strong>Copy website link</strong> below and paste it into Safari.',
+                            'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
+                        ]), 'WhatsApp\'s own browser cannot add apps to your phone. Open the site in Safari first, then it takes two taps.');
+                    } else {
+                        openModal(steps([
+                            'Tap the <strong>&#8942;</strong> menu at the top right of this screen.',
+                            'Choose <strong>Open in browser</strong> (Chrome).',
+                            'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
+                        ]), 'WhatsApp\'s own browser cannot add apps to your phone. Open the site in Chrome first, then it takes two taps.');
+                    }
                     return;
                 }
                 // 3. iPhone Safari: Apple has no install button, only the Share sheet.
@@ -262,7 +270,9 @@
 
             // The bar shows everywhere — WhatsApp, Instagram, desktop, all of it.
             if (inApp) {
-                barText.innerHTML = 'Open this page in Safari/Chrome to add the app.';
+                var browserName = isIOS ? 'Safari' : 'Chrome';
+                barText.innerHTML = 'Open this page in <strong>' + browserName + '</strong> first — this browser cannot add apps.';
+                btn.textContent = 'How to open in ' + browserName;
             }
             bar.style.display = 'block';
         })();

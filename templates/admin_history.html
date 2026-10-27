@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}History | Lekki Suites Admin{% endblock %}
+
+{% block content %}
+
+    <!-- ===== PAGE HEADER ===== -->
+    <section class="page-hero">
+        <h1>History</h1>
+        <p>Everything staff deleted. Nothing is lost — press Restore to bring it back.</p>
+    </section>
+
+    <section class="admin">
+        <div class="container">
+
+            <!-- ===== NAVIGATION BUTTONS ===== -->
+            <div class="admin-bar">
+                <a href="{{ url_for('admin') }}" class="btn-gold">&#128203; Bookings</a>
+                <a href="{{ url_for('admin_orders') }}" class="btn-gold admin-btn-lg">&#127869; Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
+                <a href="{{ url_for('admin_bookings_csv') }}" class="btn-gold btn-outline">&#11015; Spreadsheet</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
+            </div>
+
+            <!-- ===== DELETED TICKETS ===== -->
+            <h2 class="admin-section-title">Deleted tickets</h2>
+
+            {% if bookings %}
+                <div class="booking-cards">
+                    {% for b in bookings %}
+                    <article class="booking-card">
+                        <div class="bc-top">
+                            <span class="bc-ticket">{{ b.ticket_id }}</span>
+                            <span class="status-badge status-cancelled">Deleted {{ b.deleted_at }}</span>
+                        </div>
+
+                        <div class="bc-body">
+                            <div class="bc-name">
+                                <strong>{{ b.name }}</strong>
+                                {% if b.phone %}<a href="tel:{{ b.phone }}" class="bc-phone">{{ b.phone }}</a>{% endif %}
+                            </div>
+                            <dl class="bc-grid">
+                                <div><dt>Room</dt><dd>{{ b.room_type }}</dd></div>
+                                <div><dt>Guests</dt><dd>{{ b.guests }}</dd></div>
+                                <div><dt>Check-in</dt><dd>{{ b.check_in }}</dd></div>
+                                <div><dt>Check-out</dt><dd>{{ b.check_out }}</dd></div>
+                            </dl>
+                            {% if b.amount %}<p class="bc-notes"><span>Amount:</span> &#8358;{{ "{:,}".format(b.amount) }}</p>{% endif %}
+                        </div>
+
+                        <div class="bc-actions">
+                            <form method="POST" action="{{ url_for('admin_booking_restore', booking_id=b.id) }}">
+                                <button type="submit" class="btn-confirm">Restore</button>
+                            </form>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="section-sub">No deleted tickets. When staff delete one it will show up here.</p>
+            {% endif %}
+
+            <!-- ===== DELETED FOOD ORDERS ===== -->
+            <h2 class="admin-section-title">Deleted food orders</h2>
+
+            {% if orders %}
+                {% for o, items in orders %}
+                <div class="order-card">
+                    <div class="order-card-head">
+                        <div>
+                            <span class="order-ref">{{ o.order_ref }}</span>
+                            <span class="status-badge status-cancelled">Deleted {{ o.deleted_at }}</span>
+                        </div>
+                        <div>
+                            <span class="stat-label">{{ o.created_at }}</span>
+                        </div>
+                    </div>
+                    <div class="order-card-body">
+                        <table class="pay-table">
+                            <tr><th>Guest</th><td>{{ o.guest_name }}</td></tr>
+                            {% if o.room_number %}<tr><th>Room</th><td>{{ o.room_number }}</td></tr>{% endif %}
+                            {% if o.phone %}<tr><th>Phone</th><td>{{ o.phone }}</td></tr>{% endif %}
+                        </table>
+
+                        <h4>Items</h4>
+                        <table class="order-items">
+                            <thead>
+                                <tr><th>Item</th><th>Qty</th><th>Price</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for item in items %}
+                                <tr>
+                                    <td>{{ item.name }}</td>
+                                    <td>{{ item.qty }}</td>
+                                    <td>&#8358;{{ "{:,}".format(item.price * item.qty) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot>
+                                <tr><th colspan="2">Total</th><td>&#8358;{{ "{:,}".format(o.total) }}</td></tr>
+                            </tfoot>
+                        </table>
+
+                        <div class="order-actions">
+                            <form method="POST" action="{{ url_for('admin_order_restore', order_id=o.id) }}" style="display:inline;">
+                                <button type="submit" class="btn-confirm">Restore</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="section-sub">No deleted food orders.</p>
+            {% endif %}
+
+        </div>
+    </section>
+
+{% endblock %}

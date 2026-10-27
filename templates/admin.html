@@ -16,6 +16,7 @@
             <!-- ===== NAVIGATION BUTTONS ===== -->
             <div class="admin-bar">
                 <a href="{{ url_for('admin_orders') }}" class="btn-gold admin-btn-lg">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
+                <a href="{{ url_for('admin_history') }}" class="btn-gold btn-outline">🗂 History{% if history_count %} <span class="badge-notify">{{ history_count }}</span>{% endif %}</a>
                 <a href="{{ url_for('admin_bookings_csv') }}" class="btn-gold">⬇ Spreadsheet</a>
                 <a href="{{ url_for('ticket') }}" class="btn-gold btn-outline">Check Ticket</a>
                 <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
@@ -183,8 +184,8 @@
                             </form>
                             {% endif %}
 
-                            <!-- fix35: permanently remove a row (test data, duplicates, mistakes) -->
-                            <form method="POST" action="{{ url_for('admin_booking_delete', booking_id=b.id) }}" onsubmit="return confirm('Delete ticket {{ b.ticket_id }} for good? This cannot be undone.');">
+                            <!-- fix40: delete only HIDES the row — it moves to History and can be restored -->
+                            <form method="POST" action="{{ url_for('admin_booking_delete', booking_id=b.id) }}" onsubmit="return confirm('Delete ticket {{ b.ticket_id }}?\n\nIt will move to History, where you can bring it back if you change your mind.');">
                                 <input type="hidden" name="view" value="{{ view }}">
                                 <input type="hidden" name="q" value="{{ q }}">
                                 <button type="submit" class="btn-ghost btn-danger">Delete</button>

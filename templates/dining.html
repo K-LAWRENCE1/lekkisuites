@@ -18,7 +18,7 @@
                     and refreshing drinks, prepared fresh daily. <strong>Guests can now order directly
                     from this page</strong> &mdash; add items to your order, check out, and we deliver to your room.
                 </p>
-                <img src="{{ url_for('static', filename='bar_lounge.jpeg') }}" alt="Lekki Suites Bar Lounge" class="dining-bar-photo">
+                <img src="{{ url_for('static', filename='bar_lounge.jpeg') }}" alt="Lekki Suites Bar Lounge" class="dining-bar-photo" loading="lazy" decoding="async">
             </div>
         </div>
     </section>
@@ -137,6 +137,8 @@ function toggleCart(btn) {
     var cart = document.getElementById('orderCart');
     if (!cart) return;
     var open = cart.classList.toggle('open');
+    // fix43: hide the WhatsApp bubble while the cart is open
+    document.body.classList.toggle('cart-open', open);
     btn.textContent = open ? 'Hide' : 'View';
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }

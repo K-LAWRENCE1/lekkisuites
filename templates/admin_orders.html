@@ -13,6 +13,7 @@
 
             <div class="admin-bar">
                 <a href="{{ url_for('admin') }}" class="btn-gold">&larr; Bookings</a>
+                <a href="{{ url_for('admin_history') }}" class="btn-gold btn-outline">🗂 History{% if history_count %} <span class="badge-notify">{{ history_count }}</span>{% endif %}</a>
                 <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
             </div>
 
@@ -121,6 +122,11 @@
                                 {% elif o.order_status == 'Delivered' %}
                                     <span class="confirmed-mark">&#10003; Order Complete</span>
                                 {% endif %}
+
+                                <!-- fix40: delete an order — it moves to History and can be restored -->
+                                <form method="POST" action="{{ url_for('admin_order_delete', order_id=o.id) }}" style="display:inline;" onsubmit="return confirm('Delete order {{ o.order_ref }}?\n\nIt will move to History, where you can bring it back if you change your mind.');">
+                                    <button type="submit" class="btn-ghost btn-danger">Delete</button>
+                                </form>
                             </div>
                         </div>
                     </div>
