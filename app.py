@@ -37,6 +37,9 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 HOTEL_EMAIL = os.environ.get("HOTEL_EMAIL", "")
+# The address guests actually see in the "From:" line. With Brevo the SMTP login
+# (something@smtp-brevo.com) is NOT a real mailbox, so it must not be used here.
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or HOTEL_EMAIL or SMTP_USER
 
 
 def build_receipt(row, nights, amount):
@@ -69,7 +72,8 @@ def send_email(to_addr, subject, body):
         return False
     try:
         msg = EmailMessage()
-        msg["From"] = "Lekki Suites <{}>".format(SMTP_USER)
+        msg["From"] = "Lekki Suites <{}>".format(EMAIL_FROM)
+        msg["Reply-To"] = EMAIL_FROM
         msg["To"] = to_addr
         msg["Subject"] = subject
         msg.set_content(body)
