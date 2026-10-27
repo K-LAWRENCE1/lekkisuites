@@ -133,12 +133,17 @@ function showCategory(cat, btn) {
     btn.classList.add('active');
 }
 // Collapse / expand the order cart (mobile)
+function cartHasItems(cart) {
+    return !!(cart && cart.querySelector('.cart-items li'));
+}
+
 function toggleCart(btn) {
     var cart = document.getElementById('orderCart');
     if (!cart) return;
     var open = cart.classList.toggle('open');
-    // fix43: hide the WhatsApp bubble while the cart is open
-    document.body.classList.toggle('cart-open', open);
+    // fix49: keep the WhatsApp bubble hidden for as long as the cart is not
+    // empty, so it can never sit on top of the cart or its checkout button.
+    document.body.classList.toggle('cart-open', open || cartHasItems(cart));
     btn.textContent = open ? 'Hide' : 'View';
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
@@ -146,6 +151,12 @@ function toggleCart(btn) {
 // On page load, show food only
 document.addEventListener('DOMContentLoaded', function() {
     showCategory('food', document.querySelector('.menu-tab'));
+    // fix49: the moment something is in the cart, the WhatsApp bubble steps
+    // aside; once the cart is cleared the page reloads and it comes back.
+    var cartEl = document.getElementById('orderCart');
+    if (cartEl && cartHasItems(cartEl)) {
+        document.body.classList.add('cart-open');
+    }
     // If URL has #orderCart, scroll to cart
     if (window.location.hash === '#orderCart') {
         setTimeout(function() {

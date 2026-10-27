@@ -888,6 +888,7 @@ def admin():
     return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""),
                            view=view, arrivals=arrivals, departing=departing,
                            new_orders_count=new_orders_count,
+                           history_count=history_count,
                            today_label=today.strftime("%a %d %b"))
 
 
@@ -918,7 +919,7 @@ def admin_confirm(booking_id):
                 send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
             if HOTEL_EMAIL:
                 send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
-    return redirect(url_for("admin"))
+    return back_to_admin()
 
 
 # ===== ADMIN: RECEPTION ACTIONS (fix32) =====
@@ -943,14 +944,14 @@ def admin_booking_action(booking_id):
     action = request.form.get("action", "")
     if action not in BOOKING_ACTIONS:
         flash("Unknown action.", "error")
-        return redirect(url_for("admin"))
+        return back_to_admin()
 
     new_status, label = BOOKING_ACTIONS[action]
     conn = get_db()
     b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
     if not b:
         conn.close()
-        return redirect(url_for("admin"))
+        return back_to_admin()
 
     conn.execute(
         "UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?",
@@ -975,8 +976,7 @@ def admin_booking_action(booking_id):
         if HOTEL_EMAIL:
             send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
 
-    return redirect(url_for("admin", view=request.form.get("view", "all"),
-                            q=request.form.get("q", "")))
+    return back_to_admin()
 
 
 @app.route("/admin/booking/<int:booking_id>/delete", methods=["POST"])
@@ -993,7 +993,7 @@ def admin_booking_delete(booking_id):
     b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
     if not b:
         conn.close()
-        return redirect(url_for("admin"))
+        return back_to_admin()
 
     conn.execute("UPDATE bookings SET deleted_at = ? WHERE id = ?",
                  (datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id))
@@ -1003,8 +1003,7 @@ def admin_booking_delete(booking_id):
     log_activity("Booking", "Deleted", b["ticket_id"],
                  "{} - {} ({}) - moved to History".format(b["name"], b["room_type"], b["check_in"]))
     flash("Ticket {} moved to History.".format(b["ticket_id"]), "success")
-    return redirect(url_for("admin", view=request.form.get("view", "all"),
-                            q=request.form.get("q", "")))
+    return back_to_admin()
 
 
 @app.route("/admin/booking/<int:booking_id>/restore", methods=["POST"])
@@ -1021,7 +1020,7 @@ def admin_booking_restore(booking_id):
         log_activity("Booking", "Restored", b["ticket_id"], b["name"])
         flash("Ticket {} restored.".format(b["ticket_id"]), "success")
     conn.close()
-    return redirect(url_for("admin_history"))
+    return back_to_admin("admin_history")
 
 
 @app.route("/admin/orders/<int:order_id>/delete", methods=["POST"])
@@ -1039,7 +1038,7 @@ def admin_order_delete(order_id):
         log_activity("Food", "Deleted", o["order_ref"], "{} - moved to History".format(o["guest_name"]))
         flash("Order {} moved to History.".format(o["order_ref"]), "success")
     conn.close()
-    return redirect(url_for("admin_orders"))
+    return back_to_admin("admin_orders")
 
 
 @app.route("/admin/orders/<int:order_id>/restore", methods=["POST"])
@@ -1056,7 +1055,7 @@ def admin_order_restore(order_id):
         log_activity("Food", "Restored", o["order_ref"], o["guest_name"])
         flash("Order {} restored.".format(o["order_ref"]), "success")
     conn.close()
-    return redirect(url_for("admin_history"))
+    return back_to_admin("admin_history")
 
 
 @app.route("/admin/history")
@@ -1101,8 +1100,7 @@ def admin_booking_update(booking_id):
     conn.commit()
     conn.close()
     log_activity("Booking", "Notes Updated", str(booking_id), notes[:120] or room_no)
-    return redirect(url_for("admin", view=request.form.get("view", "all"),
-                            q=request.form.get("q", "")))
+    return back_to_admin()
 
 
 @app.route("/admin/bookings.csv")
@@ -1189,7 +1187,7 @@ def admin_confirm_payment(order_id):
     conn.execute("UPDATE food_orders SET payment_status = 'Confirmed' WHERE id = ?", (order_id,))
     conn.commit()
     conn.close()
-    return redirect(url_for("admin", _anchor="food-orders"))
+    return back_to_admin()
 
 
 # Change the status of a food order (New -> Preparing -> Ready -> Delivered).
@@ -1199,18 +1197,48 @@ def admin_order_status(order_id):
         return redirect(url_for("admin"))
     status = request.form.get("status", "")
     if status not in ("Preparing", "Ready", "Delivered"):
-        return redirect(url_for("admin", _anchor="food-orders"))
+        return back_to_admin()
     conn = get_db()
     conn.execute("UPDATE food_orders SET order_status = ? WHERE id = ?", (status, order_id))
     conn.commit()
     conn.close()
-    return redirect(url_for("admin", _anchor="food-orders"))
+    return back_to_admin()
 
 
 @app.route("/admin/logout")
 def admin_logout():
     session.clear()
-    return redirect(url_for("admin"))
+    return back_to_admin()
+
+
+def back_to_admin(default_endpoint="admin", **kwargs):
+    """fix50: send staff back to the exact page they acted from.
+
+    Using the referring page keeps the tab (?view=), the search (?q=) and the
+    anchor intact instead of dumping them back at the top of the bookings list.
+    """
+    ref = request.referrer or ""
+    if ref.startswith(request.host_url):
+        return redirect(ref)
+    return redirect(url_for(default_endpoint, **kwargs))
+
+# --- fix48: temporary diagnostic -------------------------------------------
+# While we hunt a 500 on /admin, a logged-in staff member sees the real error
+# instead of Render's blank "Internal Server Error" page. Remove once fixed.
+from werkzeug.exceptions import HTTPException
+
+
+@app.errorhandler(Exception)
+def _admin_diagnostic(error):
+    if isinstance(error, HTTPException):
+        return error
+    if not (request.path.startswith("/admin") and session.get("admin_logged_in")):
+        return "Internal Server Error", 500
+    import traceback
+    tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    return ("<pre style=\"padding:16px;font-size:12px;white-space:pre-wrap;"
+            "font-family:monospace;background:#fff;color:#111\">"
+            + tb.replace("&", "&amp;").replace("<", "&lt;") + "</pre>"), 500
 
 
 # This lets us run the website by typing:  python app.py

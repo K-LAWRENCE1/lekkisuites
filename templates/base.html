@@ -331,6 +331,27 @@
         })();
     </script>
 
+    <!-- fix50: after confirming / deleting in the admin, come back to the same
+         spot on the page instead of jumping to the top of the list. -->
+    <script>
+        (function () {
+            var KEY = 'ls_admin_scroll';
+            if (location.pathname.indexOf('/admin') !== 0) return;
+            document.addEventListener('submit', function () {
+                try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
+            });
+            window.addEventListener('load', function () {
+                try {
+                    var y = sessionStorage.getItem(KEY);
+                    if (y !== null) {
+                        sessionStorage.removeItem(KEY);
+                        window.scrollTo(0, parseInt(y, 10) || 0);
+                    }
+                } catch (e) {}
+            });
+        })();
+    </script>
+
     {% block scripts %}{% endblock %}
 
 </body>

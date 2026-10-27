@@ -19,6 +19,24 @@ def _clean_url(url):
     return url
 
 
+class _Row(dict):
+    """A result row that behaves like sqlite3.Row.
+
+    sqlite3.Row can be read both by name (row['ticket_id']) and by position
+    (row[0]). Postgres hands back a plain dict, where row[0] raises KeyError.
+    This class keeps the dict lookups but also answers integer indexes, so the
+    same code works on both databases.
+    """
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            try:
+                return list(self.values())[key]
+            except IndexError:
+                raise IndexError("row index out of range")
+        return dict.__getitem__(self, key)
+
+
 class _PGCursor:
     """Wraps a psycopg2 cursor so the rest of the app can stay unchanged."""
 
@@ -27,13 +45,14 @@ class _PGCursor:
         self.lastrowid = lastrowid
 
     def fetchall(self):
-        return self._cursor.fetchall()
+        return [_Row(row) for row in self._cursor.fetchall()]
 
     def fetchone(self):
-        return self._cursor.fetchone()
+        row = self._cursor.fetchone()
+        return _Row(row) if row is not None else None
 
     def __iter__(self):
-        return iter(self._cursor.fetchall())
+        return iter(self.fetchall())
 
 
 class _PGConnection:
