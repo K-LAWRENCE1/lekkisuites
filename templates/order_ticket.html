@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Check Order | Lekki Suites{% endblock %}
+{% block title %}Order {{ o.order_ref }} | Lekki Suites{% endblock %}
 
 {% block content %}
 
     <!-- ===== PAGE HEADER ===== -->
     <section class="page-hero">
-        <h1>Check Order</h1>
-        <p>Enter a ticket or order number to view it.</p>
+        <h1>Your Order</h1>
+        <p>Room service order status for {{ o.order_ref }}.</p>
     </section>
 
-    <!-- ===== ORDER RESULT (fix52) ===== -->
+    <!-- ===== ORDER RESULT ===== -->
     <section class="booking">
         <div class="container">
             <div class="ticket-result">
@@ -19,35 +19,42 @@
                             <span class="ticket-label">Order Number</span>
                             <span class="ticket-no">{{ o.order_ref }}</span>
                         </div>
-                        <span class="status-badge status-pending">{{ o.order_status }}</span>
+                        <span class="status-badge status-{{ (o.order_status or 'New')|lower }}">{{ o.order_status or 'New' }}</span>
                     </div>
                     <h2>Guest: {{ o.guest_name }}</h2>
-                    <p class="ticket-sub">Room: {{ o.room_number }}</p>
+                    <p class="ticket-sub">Room {{ o.room_number }}{% if o.phone %} &middot; {{ o.phone }}{% endif %}</p>
+
                     <div class="ticket-grid">
-                        <div class="ticket-item"><span class="ticket-label">Payment</span><span class="ticket-val">{{ o.payment_method }}</span></div>
-                        <div class="ticket-item"><span class="ticket-label">Payment Status</span><span class="ticket-val">{{ o.payment_status }}</span></div>
-                        <div class="ticket-item"><span class="ticket-label">Ordered</span><span class="ticket-val">{{ o.created_at }}</span></div>
-                        <div class="ticket-item"><span class="ticket-label">Total</span><span class="ticket-val">&#8358;{{ "{:,}".format(o.total) }}</span></div>
+                        <div class="ticket-item"><span class="ticket-label">Placed</span><span class="ticket-val">{{ o.created_at }}</span></div>
+                        <div class="ticket-item"><span class="ticket-label">Payment</span><span class="ticket-val">{{ o.payment_method|title }} &middot; {{ o.payment_status }}</span></div>
                     </div>
 
                     <div class="ticket-note">
-                        <strong>Items:</strong>
-                        <ul style="margin:8px 0 0 18px;">
-                            {% for line in lines %}
-                                <li>{{ line.qty }} &times; {{ line.name }} &mdash; &#8358;{{ "{:,}".format(line.total) }}</li>
-                            {% endfor %}
-                        </ul>
+                        {% for line in lines %}
+                        <div style="display:flex;justify-content:space-between;gap:12px;">
+                            <span>{{ line.qty }} &times; {{ line.name }}</span>
+                            <span>&#8358;{{ "{:,}".format(line.total) }}</span>
+                        </div>
+                        {% endfor %}
                     </div>
 
                     <div class="ticket-note">
-                        Payment is taken at the hotel. Ask reception if anything looks wrong.
+                        <strong>Total: &#8358;{{ "{:,}".format(o.total) }}</strong>
+                    </div>
+
+                    <div class="ticket-note">
+                        {% if o.order_status == 'Delivered' %}
+                            This order has been delivered. Thank you for ordering from Lekki Suites.
+                        {% elif o.order_status == 'Cancelled' %}
+                            This order was cancelled. Please speak to reception if that is a surprise.
+                        {% else %}
+                            Your order is with the kitchen. It will come to Room {{ o.room_number }}.
+                        {% endif %}
                     </div>
                 </div>
             </div>
 
-            <p style="text-align:center;margin-top:18px;">
-                <a href="{{ url_for('ticket') }}" class="btn-gold">Check another number</a>
-            </p>
+            <p class="back-link"><a href="{{ url_for('dining') }}">&larr; Back to Dining</a></p>
         </div>
     </section>
 
