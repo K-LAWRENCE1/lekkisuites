@@ -1325,12 +1325,7 @@ from werkzeug.exceptions import HTTPException
 def _admin_diagnostic(error):
     if isinstance(error, HTTPException):
         return error
-    # fix53: temporary - ?dbgtrace=1 returns the traceback so we can read it.
-    if request.args.get("dbgtrace") == "1":
-        import traceback as _tb
-        _txt = "".join(_tb.format_exception(type(error), error, error.__traceback__))
-        return ("<pre style=\"padding:16px;font-size:12px;white-space:pre-wrap;\">"
-                + _txt.replace("&", "&amp;").replace("<", "&lt;") + "</pre>"), 500
+    # fix55: errors are logged for the Render log, never shown to visitors.
     app.logger.error("500 on %s: %s", request.path, error, exc_info=True)
     if not (request.path.startswith("/admin") and session.get("admin_logged_in")):
         return "Internal Server Error", 500
