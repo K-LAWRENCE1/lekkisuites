@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Check Order | Lekki Suites{% endblock %}
+
+{% block content %}
+
+    <!-- ===== PAGE HEADER ===== -->
+    <section class="page-hero">
+        <h1>Check Order</h1>
+        <p>Enter a ticket or order number to view it.</p>
+    </section>
+
+    <!-- ===== ORDER RESULT (fix52) ===== -->
+    <section class="booking">
+        <div class="container">
+            <div class="ticket-result">
+                <div class="ticket">
+                    <div class="ticket-top">
+                        <div>
+                            <span class="ticket-label">Order Number</span>
+                            <span class="ticket-no">{{ o.order_ref }}</span>
+                        </div>
+                        <span class="status-badge status-pending">{{ o.order_status }}</span>
+                    </div>
+                    <h2>Guest: {{ o.guest_name }}</h2>
+                    <p class="ticket-sub">Room: {{ o.room_number }}</p>
+                    <div class="ticket-grid">
+                        <div class="ticket-item"><span class="ticket-label">Payment</span><span class="ticket-val">{{ o.payment_method }}</span></div>
+                        <div class="ticket-item"><span class="ticket-label">Payment Status</span><span class="ticket-val">{{ o.payment_status }}</span></div>
+                        <div class="ticket-item"><span class="ticket-label">Ordered</span><span class="ticket-val">{{ o.created_at }}</span></div>
+                        <div class="ticket-item"><span class="ticket-label">Total</span><span class="ticket-val">&#8358;{{ "{:,}".format(o.total) }}</span></div>
+                    </div>
+
+                    <div class="ticket-note">
+                        <strong>Items:</strong>
+                        <ul style="margin:8px 0 0 18px;">
+                            {% for line in lines %}
+                                <li>{{ line.qty }} &times; {{ line.name }} &mdash; &#8358;{{ "{:,}".format(line.total) }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+
+                    <div class="ticket-note">
+                        Payment is taken at the hotel. Ask reception if anything looks wrong.
+                    </div>
+                </div>
+            </div>
+
+            <p style="text-align:center;margin-top:18px;">
+                <a href="{{ url_for('ticket') }}" class="btn-gold">Check another number</a>
+            </p>
+        </div>
+    </section>
+
+{% endblock %}

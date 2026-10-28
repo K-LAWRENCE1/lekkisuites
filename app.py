@@ -614,11 +614,30 @@ def ticket():
     if ref:
         conn = get_db()
         b = conn.execute("SELECT * FROM bookings WHERE UPPER(ticket_id) = ?", (ref,)).fetchone()
+        # fix52: a room-service order can be checked too, using its ORD- number.
+        o = None
+        if not b:
+            o = conn.execute(
+                "SELECT * FROM food_orders WHERE UPPER(order_ref) = ? AND deleted_at IS NULL",
+                (ref,),
+            ).fetchone()
         conn.close()
         if b:
             cls, label = ticket_display(b)
             return render_template("ticket.html", b=b, status_class=cls, status_label=label)
-        flash("No booking found for that ticket number.", "error")
+        if o:
+            try:
+                raw_items = json.loads(o["items"]) or {}
+            except Exception:
+                raw_items = {}
+            lines = []
+            for item_id, qty in raw_items.items():
+                dish = MENU_BY_ID.get(item_id)
+                name = dish["name"] if dish else item_id
+                price = dish["price"] if dish else 0
+                lines.append({"name": name, "qty": qty, "total": price * qty})
+            return render_template("order_ticket.html", o=o, lines=lines)
+        flash("No booking or order found for that number.", "error")
         return redirect(url_for("ticket"))
 
     # No ticket number entered yet - show the search form.
