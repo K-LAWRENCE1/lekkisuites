@@ -626,15 +626,39 @@ def ticket():
             cls, label = ticket_display(b)
             return render_template("ticket.html", b=b, status_class=cls, status_label=label)
         if o:
+            # fix54: order items may be stored as {id: qty} or as a list of
+            # entries, depending on which version created the order. Accept both.
             try:
                 raw_items = json.loads(o["items"]) or {}
             except Exception:
                 raw_items = {}
+            pairs = []
+            if isinstance(raw_items, dict):
+                pairs = list(raw_items.items())
+            elif isinstance(raw_items, list):
+                for entry in raw_items:
+                    if isinstance(entry, dict):
+                        iid = entry.get("id") or entry.get("item_id") or entry.get("name")
+                        qty = entry.get("qty") or entry.get("quantity") or 1
+                        pairs.append((iid, qty))
+                    elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                        pairs.append((entry[0], entry[1]))
+                    elif isinstance(entry, str):
+                        pairs.append((entry, 1))
             lines = []
-            for item_id, qty in raw_items.items():
-                dish = MENU_BY_ID.get(item_id)
-                name = dish["name"] if dish else item_id
+            for item_id, qty in pairs:
+                dish = MENU_BY_ID.get(item_id) if isinstance(item_id, str) else None
+                if dish is None and isinstance(item_id, str):
+                    for _d in MENU_BY_ID.values():
+                        if _d["name"].lower() == item_id.lower():
+                            dish = _d
+                            break
+                name = dish["name"] if dish else str(item_id)
                 price = dish["price"] if dish else 0
+                try:
+                    qty = int(qty)
+                except Exception:
+                    qty = 1
                 lines.append({"name": name, "qty": qty, "total": price * qty})
             return render_template("order_ticket.html", o=o, lines=lines)
         flash("No booking or order found for that number.", "error")
