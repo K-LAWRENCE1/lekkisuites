@@ -86,6 +86,13 @@ class _PGConnection:
                 "ORDER BY ordinal_position"
             ).format(table)
 
+        # fix65: SQLite's "INSERT OR IGNORE" has no Postgres spelling. Postgres uses
+        # "ON CONFLICT DO NOTHING" instead. The rooms seed in init_db needs this.
+        if "INSERT OR IGNORE" in upper:
+            sql = re.sub(r"INSERT\s+OR\s+IGNORE\s+INTO", "INSERT INTO", sql,
+                         flags=re.IGNORECASE)
+            sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+
         return sql.replace("?", "%s")
 
     def execute(self, sql, params=()):
@@ -94,7 +101,11 @@ class _PGConnection:
         cursor = self._conn.cursor()
 
         # The app asks for cur.lastrowid after inserts; Postgres needs RETURNING id.
-        if raw.startswith("INSERT") and "RETURNING" not in statement.upper():
+        # A "DO NOTHING" insert returns no row, and the rooms table has no id column,
+        # so those inserts must go through untouched.
+        if (raw.startswith("INSERT")
+                and "RETURNING" not in statement.upper()
+                and "ON CONFLICT" not in statement.upper()):
             statement = statement.rstrip().rstrip(";") + " RETURNING id"
             cursor.execute(statement, params)
             row = cursor.fetchone()
