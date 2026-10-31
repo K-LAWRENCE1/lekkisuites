@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% block manifest %}<link rel="manifest" href="/admin/manifest.webmanifest">{% endblock %}
+{% block app_title %}LS Admin{% endblock %}
 {% block title %}Bookings | Lekki Suites Admin{% endblock %}
 
 {% block content %}
@@ -16,6 +18,8 @@
             <!-- ===== NAVIGATION BUTTONS ===== -->
             <div class="admin-bar">
                 <a href="{{ url_for('admin_orders') }}" class="btn-gold admin-btn-lg">🍽️ Food Orders{% if new_orders_count %} <span class="badge-notify">{{ new_orders_count }}</span>{% endif %}</a>
+                <a href="{{ url_for('admin_rooms') }}" class="btn-gold">🛏 Room Board</a>
+                <a href="{{ url_for('admin_walkin') }}" class="btn-gold btn-outline">🛎 Walk-in / Hold</a>
                 <a href="{{ url_for('admin_history') }}" class="btn-gold btn-outline">🗂 History{% if history_count %} <span class="badge-notify">{{ history_count }}</span>{% endif %}</a>
                 <a href="{{ url_for('admin_bookings_csv') }}" class="btn-gold">⬇ Spreadsheet</a>
                 <a href="{{ url_for('ticket') }}" class="btn-gold btn-outline">Check Ticket</a>

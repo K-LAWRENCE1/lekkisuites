@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block manifest %}<link rel="manifest" href="/admin/manifest.webmanifest">{% endblock %}
+{% block app_title %}LS Admin{% endblock %}
+{% block title %}Walk-in &amp; Held Rooms | Lekki Suites Admin{% endblock %}
+
+{% block content %}
+
+    <section class="page-hero">
+        <h1>Walk-in &amp; Held Rooms</h1>
+        <p>Everything entered here takes a room off the website for those dates.</p>
+    </section>
+
+    <section class="admin">
+        <div class="container">
+
+            <div class="admin-bar">
+                <a href="{{ url_for('admin') }}" class="btn-gold">&larr; Bookings</a>
+                <a href="{{ url_for('admin_orders') }}" class="btn-gold btn-outline">🍽️ Food Orders</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- ===== WALK-IN GUEST ===== -->
+            <div class="booking-card">
+                <h2>Guest at the front desk</h2>
+                <p class="ticket-sub">A person standing in front of you. Saved as Checked In.</p>
+
+                <form method="POST" action="{{ url_for('admin_walkin') }}">
+                    <input type="hidden" name="kind" value="walkin">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="w_name">Guest Name *</label>
+                            <input type="text" id="w_name" name="name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="w_phone">Phone *</label>
+                            <input type="tel" id="w_phone" name="phone" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="w_room">Room Type *</label>
+                            <select id="w_room" name="room_type" required>
+                                {% for t in room_types %}
+                                <option value="{{ t }}">{{ t }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="w_guests">Guests</label>
+                            <input type="number" id="w_guests" name="guests" value="1" min="1" max="10">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="w_in">Check-in *</label>
+                            <input type="date" id="w_in" name="check_in" value="{{ today }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="w_out">Check-out *</label>
+                            <input type="date" id="w_out" name="check_out" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-gold">Save Walk-in</button>
+                </form>
+            </div>
+
+            <!-- ===== HOLD ROOMS ===== -->
+            <div class="booking-card">
+                <h2>Hold rooms</h2>
+                <p class="ticket-sub">Rooms that are occupied or out of service but have no name against them — maintenance, staff use, or guests already inside.</p>
+
+                <form method="POST" action="{{ url_for('admin_walkin') }}">
+                    <input type="hidden" name="kind" value="block">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="b_room">Room Type *</label>
+                            <select id="b_room" name="room_type" required>
+                                {% for t in room_types %}
+                                <option value="{{ t }}">{{ t }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="b_rooms">How many rooms *</label>
+                            <input type="number" id="b_rooms" name="rooms" value="1" min="1" max="20" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="b_in">From *</label>
+                            <input type="date" id="b_in" name="check_in" value="{{ today }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="b_out">To *</label>
+                            <input type="date" id="b_out" name="check_out" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="b_reason">Reason (optional)</label>
+                        <input type="text" id="b_reason" name="reason" placeholder="e.g. maintenance, staff room, guest already inside">
+                    </div>
+
+                    <button type="submit" class="btn-gold">Hold Rooms</button>
+                </form>
+            </div>
+
+            <!-- ===== CURRENT HOLDS ===== -->
+            <div class="booking-card">
+                <h2>Rooms currently held</h2>
+
+                {% if holds %}
+                <table class="pay-table">
+                    <tr><th>Room Type</th><th>Rooms</th><th>From</th><th>To</th><th>Reason</th><th></th></tr>
+                    {% for h in holds %}
+                    <tr>
+                        <td>{{ h['room_type'] }}</td>
+                        <td>{{ h['rooms'] }}</td>
+                        <td>{{ h['check_in'] }}</td>
+                        <td>{{ h['check_out'] }}</td>
+                        <td>{{ h['reason'] or '—' }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin_release_block', block_id=h['id']) }}">
+                                <button type="submit" class="btn-gold btn-outline">Release</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                {% else %}
+                <p class="ticket-sub">Nothing held. Every room is available to the website.</p>
+                {% endif %}
+            </div>
+
+        </div>
+    </section>
+
+{% endblock %}

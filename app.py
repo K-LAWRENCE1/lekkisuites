@@ -10,7 +10,7 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime, date
 from flask import (Flask, render_template, request, redirect, url_for, session, flash,
-                   Response, send_from_directory, make_response)
+                   Response, send_from_directory, make_response, jsonify)
 
 # Create the Flask application
 app = Flask(__name__)
@@ -112,8 +112,72 @@ ROOM_PRICES = {
     "Executive Room": 45000,
     "Deluxe Room": 50000,
     "Deluxe Room (2 Beds)": 55000,
-    "Executive Suite": 45000,
 }
+
+# --- How many of each room type the hotel actually has (fix57) ---
+# Every booking is checked against these numbers, so a room type that is
+# already taken for the chosen dates can never be booked twice.
+# >>> CHANGE THESE NUMBERS to the real room count at the hotel. <<<
+ROOM_UNITS = {
+    "Standard Room": ["401", "501", "103", "203", "205"],
+    "Executive Room": ["101", "301", "302", "303"],
+    "Deluxe Room": ["202", "403", "204"],
+    "Deluxe Room (2 Beds)": ["102", "402"],
+}
+
+ROOM_INVENTORY = {
+    "Standard Room": 5,      # 401, 501, 103, 203, 205
+    "Executive Room": 4,     # 101, 301, 302, 303
+    "Deluxe Room": 3,        # 202, 403, 204
+    "Deluxe Room (2 Beds)": 2,  # 102, 402
+}
+
+
+def rooms_free(conn, room_type, check_in, check_out):
+    """How many rooms of this type are still free for these dates.
+
+    Two bookings clash when one starts before the other ends and ends after it
+    starts. Cancelled, no-show and checked-out bookings do not hold a room.
+
+    A booking that has already been given a real room number is NOT counted
+    here, because that room is locked on the board instead - counting both
+    would take two rooms off for one guest.
+    """
+    total = ROOM_INVENTORY.get(room_type)
+    if total is None:
+        return None
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS taken FROM bookings
+        WHERE room_type = ?
+          AND deleted_at IS NULL
+          AND (status IS NULL OR status NOT IN ('Cancelled', 'No-show', 'Checked Out'))
+          AND (room_no IS NULL OR room_no = '')
+          AND check_in < ?
+          AND check_out > ?
+        """,
+        (room_type, check_out, check_in),
+    ).fetchone()
+    taken = row["taken"] if row else 0
+
+    blocked = conn.execute(
+        """
+        SELECT COALESCE(SUM(rooms), 0) AS held FROM room_blocks
+        WHERE room_type = ?
+          AND check_in < ?
+          AND check_out > ?
+        """,
+        (room_type, check_out, check_in),
+    ).fetchone()
+    held = blocked["held"] if blocked else 0
+
+    locked = conn.execute(
+        "SELECT COUNT(*) AS n FROM rooms WHERE room_type = ? AND locked = 1",
+        (room_type,),
+    ).fetchone()
+    locked_n = locked["n"] if locked else 0
+
+    return max(total - taken - held - locked_n, 0)
 
 
 # ===== ROOM SERVICE MENU =====
@@ -296,6 +360,50 @@ def init_db():
     order_cols = {row["name"] for row in conn.execute("PRAGMA table_info(food_orders)").fetchall()}
     if "deleted_at" not in order_cols:
         conn.execute("ALTER TABLE food_orders ADD COLUMN deleted_at TEXT")
+
+    booking_cols = {row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()}
+    if "room_no" not in booking_cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
+
+    # --- One row per physical room (fix60) ---
+    # The front desk locks a room the moment a guest takes it, and unlocks it
+    # when they leave. That is what the website reads before saying a room
+    # type is still available.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rooms (
+            room_no TEXT PRIMARY KEY,
+            room_type TEXT NOT NULL,
+            locked INTEGER NOT NULL DEFAULT 0,
+            note TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    for _rtype, _numbers in ROOM_UNITS.items():
+        for _no in _numbers:
+            conn.execute(
+                "INSERT OR IGNORE INTO rooms (room_no, room_type, locked) VALUES (?, ?, 0)",
+                (_no, _rtype),
+            )
+
+    # --- Held rooms (fix59) ---
+    # A room can be taken by a guest standing at the front desk, or pulled out
+    # for maintenance. Neither exists in the online bookings table, so without
+    # this the website happily overbooks a room that already has somebody in it.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS room_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_type TEXT NOT NULL,
+            rooms INTEGER NOT NULL DEFAULT 1,
+            check_in TEXT NOT NULL,
+            check_out TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT
+        )
+        """
+    )
 
     # --- Activity log table (history of everything) ---
     conn.execute(
@@ -493,6 +601,31 @@ def web_manifest():
     return resp
 
 
+@app.route("/admin/manifest.webmanifest")
+def admin_manifest():
+    """fix57: a second manifest so staff can install the admin as its own app."""
+    resp = make_response(jsonify({
+        "name": "Lekki Suites Admin",
+        "short_name": "LS Admin",
+        "description": "Front desk dashboard for Lekki Suites: bookings, food orders, check-in.",
+        "id": "/admin",
+        "start_url": "/admin",
+        "scope": "/admin",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#0f1c2e",
+        "theme_color": "#0f1c2e",
+        "lang": "en-NG",
+        "icons": [
+            {"src": "/static/icons/admin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icons/admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+        ],
+    }))
+    resp.mimetype = "application/manifest+json"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
 @app.route("/contact")
 def contact():
     return render_template("contact.html")
@@ -519,8 +652,17 @@ def book():
             flash("Please fill in your name, phone, room type and dates.", "error")
             return render_template("book.html", form=request.form, preselect="")
 
-        # Save the booking into the database.
+        # fix57: refuse the booking when every room of that type is already
+        # taken for those dates, instead of quietly overbooking the hotel.
         conn = get_db()
+        free = rooms_free(conn, room_type, check_in, check_out)
+        if free == 0:
+            conn.close()
+            plain = room_type.replace(" Room", "")
+            flash("Sorry, all our {} rooms are taken for those dates. Please choose another room or different dates.".format(plain), "error")
+            return render_template("book.html", form=request.form, preselect="")
+
+        # Save the booking into the database.
         cur = conn.execute(
             """
             INSERT INTO bookings
@@ -559,7 +701,9 @@ def book():
         # Email the guest, plus a copy to the hotel as a backup of the booking.
         message_body = (
             "Hello {name},\n\n"
-            "Your booking at Lekki Suites is confirmed.\n\n"
+            "We have received your booking request and it is now PENDING.\n\n"
+            "Our front desk will confirm availability and send you a second "
+            "message once your room is approved.\n\n"
             "Ticket:    {ticket}\n"
             "Room:      {room}\n"
             "Check-in:  {check_in}\n"
@@ -577,9 +721,9 @@ def book():
             name=name, ticket=ticket_id, room=room_type, check_in=check_in,
             check_out=check_out, guests=guests, nights=nights, total=total_amount,
         )
-        send_email(email, "Booking {} confirmed - Lekki Suites".format(ticket_id), message_body)
+        send_email(email, "Booking {} received (pending) - Lekki Suites".format(ticket_id), message_body)
         if HOTEL_EMAIL:
-            send_email(HOTEL_EMAIL, "New booking {} - {}".format(ticket_id, name), message_body)
+            send_email(HOTEL_EMAIL, "New booking {} - {} (needs confirming)".format(ticket_id, name), message_body)
 
         # Send the guest to the confirmation page with their ticket + payment details.
         return render_template(
@@ -792,7 +936,9 @@ def checkout():
 
 # ===== ADMIN PAGE (view all bookings + food orders) =====
 # Password protected so only hotel staff can see the bookings.
-ADMIN_PASSWORD = "lekkisuites2026"
+# fix64: new password - short enough to type, not the hotel name. Only you, Flora and
+# whoever works the front desk should know it.
+ADMIN_PASSWORD = "lekki-desk-26"
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -955,6 +1101,46 @@ def admin_confirm(booking_id):
                      "{} marked as Paid - {} ({} nights x {}) = {}".format(
                          b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
 
+        # fix60: give the booking a real room number and lock that tile, so the
+        # front desk can see at a glance which rooms are taken.
+        if not b["room_no"]:
+            conn2 = get_db()
+            unit = conn2.execute(
+                "SELECT room_no FROM rooms WHERE room_type = ? AND locked = 0 ORDER BY room_no LIMIT 1",
+                (b["room_type"],),
+            ).fetchone()
+            if unit:
+                conn2.execute("UPDATE rooms SET locked = 1, updated_at = ? WHERE room_no = ?",
+                              (datetime.now().strftime("%Y-%m-%d %H:%M"), unit["room_no"]))
+                conn2.execute("UPDATE bookings SET room_no = ? WHERE id = ?", (unit["room_no"], booking_id))
+                conn2.commit()
+            conn2.close()
+
+        # fix57: pressing Confirm is what tells the guest their room is approved.
+        if (b["status"] or "Pending") == "Pending" and b["email"]:
+            confirmation = (
+                "Hello {name},\n\n"
+                "Good news - your booking at Lekki Suites is now CONFIRMED.\n\n"
+                "Ticket:    {ticket}\n"
+                "Room:      {room}\n"
+                "Check-in:  {check_in}\n"
+                "Check-out: {check_out}\n"
+                "Guests:    {guests}\n"
+                "Nights:    {nights}\n"
+                "Total:     NGN {total:,}\n\n"
+                "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+                "Phone/WhatsApp: +234 809 229 9428\n\n"
+                "Show ticket number {ticket} at reception on arrival.\n\n"
+                "Lekki Suites"
+            ).format(
+                name=b["name"], ticket=b["ticket_id"], room=b["room_type"],
+                check_in=b["check_in"], check_out=b["check_out"],
+                guests=b["guests"], nights=max(nights, 0), total=amount,
+            )
+            send_email(b["email"], "Booking {} confirmed - Lekki Suites".format(b["ticket_id"]), confirmation)
+            if HOTEL_EMAIL:
+                send_email(HOTEL_EMAIL, "CONFIRMED {} - {}".format(b["ticket_id"], b["name"]), confirmation)
+
         # Email the receipt to the guest (only if they were not already marked paid).
         if b["status"] != "Confirmed":
             receipt = build_receipt(b, max(nights, 0), amount)
@@ -996,6 +1182,9 @@ def admin_booking_action(booking_id):
         conn.close()
         return back_to_admin()
 
+    if action in ("cancel", "checkout", "noshow") and b["room_no"]:
+        conn.execute("UPDATE rooms SET locked = 0, updated_at = ? WHERE room_no = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"), b["room_no"]))
     conn.execute(
         "UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?",
         (new_status, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
@@ -1296,6 +1485,135 @@ def admin_order_status(order_id):
     conn.commit()
     conn.close()
     return back_to_admin()
+
+
+@app.route("/admin/walkin", methods=["GET", "POST"])
+def admin_walkin():
+    """fix59: record a guest who walked in, so the website can see the room is taken."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    if request.method == "POST":
+        kind = request.form.get("kind", "walkin")
+
+        if kind == "block":
+            room_type = request.form.get("room_type", "").strip()
+            rooms = request.form.get("rooms", "1").strip()
+            check_in = request.form.get("check_in", "").strip()
+            check_out = request.form.get("check_out", "").strip()
+            reason = request.form.get("reason", "").strip()
+            if not room_type or not check_in or not check_out:
+                flash("Pick a room type and both dates.", "error")
+            else:
+                conn = get_db()
+                conn.execute(
+                    "INSERT INTO room_blocks (room_type, rooms, check_in, check_out, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (room_type, int(rooms) if rooms.isdigit() else 1, check_in, check_out,
+                     reason, datetime.now().strftime("%Y-%m-%d %H:%M")),
+                )
+                conn.commit()
+                conn.close()
+                log_activity("Rooms", "Rooms Held", room_type,
+                             "{} room(s) held {} to {}".format(rooms, check_in, check_out))
+                flash("Rooms held. The website will no longer offer them for those dates.", "success")
+                return redirect(url_for("admin_walkin"))
+
+        else:
+            name = request.form.get("name", "").strip()
+            phone = request.form.get("phone", "").strip()
+            room_type = request.form.get("room_type", "").strip()
+            check_in = request.form.get("check_in", "").strip()
+            check_out = request.form.get("check_out", "").strip()
+            guests = request.form.get("guests", "1").strip()
+            if not name or not phone or not room_type or not check_in or not check_out:
+                flash("Please fill in name, phone, room type and dates.", "error")
+            else:
+                conn = get_db()
+                free = rooms_free(conn, room_type, check_in, check_out)
+                if free == 0:
+                    conn.close()
+                    flash("All {} rooms are already taken for those dates.".format(room_type), "error")
+                    return redirect(url_for("admin_walkin"))
+                cur = conn.execute(
+                    """
+                    INSERT INTO bookings
+                        (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Checked In')
+                    """,
+                    (name, phone, request.form.get("email", "").strip(), room_type, check_in, check_out,
+                     int(guests) if guests.isdigit() else 1,
+                     "Walk-in at reception", datetime.now().strftime("%Y-%m-%d %H:%M")),
+                )
+                bid = cur.lastrowid
+                conn.execute("UPDATE bookings SET ticket_id = ? WHERE id = ?", ("LK-{:04d}".format(bid), bid))
+                conn.commit()
+                conn.close()
+                log_activity("Booking", "Walk-in Booking", "LK-{:04d}".format(bid),
+                             "{} checked in to {} until {}".format(name, room_type, check_out))
+                flash("Walk-in recorded. That room is now blocked on the website.", "success")
+                return redirect(url_for("admin_walkin"))
+
+    conn = get_db()
+    holds = conn.execute(
+        "SELECT * FROM room_blocks WHERE check_out >= ? ORDER BY check_in", (date.today().isoformat(),)
+    ).fetchall()
+    conn.close()
+    return render_template("admin_walkin.html", holds=holds,
+                           room_types=sorted(ROOM_INVENTORY.keys()),
+                           today=date.today().isoformat())
+
+
+@app.route("/admin/rooms")
+def admin_rooms():
+    """fix60: the room board. Tap a room to lock or free it."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM rooms ORDER BY room_type, room_no").fetchall()
+    conn.close()
+
+    board = []
+    for rtype in sorted(ROOM_INVENTORY.keys()):
+        units = [r for r in rows if r["room_type"] == rtype]
+        board.append({
+            "type": rtype,
+            "units": units,
+            "locked": sum(1 for u in units if u["locked"]),
+            "total": len(units),
+        })
+    return render_template("admin_rooms.html", board=board)
+
+
+@app.route("/admin/rooms/<room_no>/toggle", methods=["POST"])
+def admin_room_toggle(room_no):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    r = conn.execute("SELECT * FROM rooms WHERE room_no = ?", (room_no,)).fetchone()
+    if r:
+        new = 0 if r["locked"] else 1
+        conn.execute(
+            "UPDATE rooms SET locked = ?, updated_at = ? WHERE room_no = ?",
+            (new, datetime.now().strftime("%Y-%m-%d %H:%M"), room_no),
+        )
+        conn.commit()
+        log_activity("Rooms", "Room Locked" if new else "Room Freed", room_no,
+                     "{} {} by reception".format(r["room_type"], "locked" if new else "freed"))
+    conn.close()
+    return redirect(url_for("admin_rooms"))
+
+
+@app.route("/admin/blocks/<int:block_id>/release", methods=["POST"])
+def admin_release_block(block_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    conn.execute("DELETE FROM room_blocks WHERE id = ?", (block_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Rooms", "Rooms Released", str(block_id), "Held rooms released back to the website")
+    flash("Rooms released.", "success")
+    return redirect(url_for("admin_walkin"))
 
 
 @app.route("/admin/logout")

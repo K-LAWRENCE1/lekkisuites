@@ -10,12 +10,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=29) }}">
 
     <!-- PWA (fix36): lets guests install Lekki Suites on their home screen -->
-    <link rel="manifest" href="/manifest.webmanifest">
+    {% block manifest %}<link rel="manifest" href="/manifest.webmanifest">{% endblock %}
     <meta name="theme-color" content="#0f1c2e">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Lekki Suites">
+    <meta name="apple-mobile-web-app-title" content="{% block app_title %}Lekki Suites{% endblock %}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
     <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='icons/favicon-64.png') }}">
 </head>

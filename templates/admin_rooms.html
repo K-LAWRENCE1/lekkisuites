@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block manifest %}<link rel="manifest" href="/admin/manifest.webmanifest">{% endblock %}
+{% block app_title %}LS Admin{% endblock %}
+{% block title %}Room Board | Lekki Suites Admin{% endblock %}
+
+{% block content %}
+
+    <section class="page-hero">
+        <h1>Room Board</h1>
+        <p>Tap a room to lock it when a guest takes it. Tap again when they leave.</p>
+    </section>
+
+    <section class="admin">
+        <div class="container">
+
+            <div class="admin-bar">
+                <a href="{{ url_for('admin') }}" class="btn-gold">&larr; Bookings</a>
+                <a href="{{ url_for('admin_walkin') }}" class="btn-gold btn-outline">🛎 Walk-in / Hold</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn-gold btn-outline">Log Out</a>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% for group in board %}
+            <div class="booking-card">
+                <h2>{{ group.type }}</h2>
+                <p class="ticket-sub">
+                    {% if group.locked >= group.total %}
+                        All {{ group.total }} rooms locked — the website is refusing this room type.
+                    {% else %}
+                        {{ group.locked }} of {{ group.total }} locked.
+                    {% endif %}
+                </p>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px;">
+                    {% for u in group.units %}
+                    <form method="POST" action="{{ url_for('admin_room_toggle', room_no=u['room_no']) }}" style="margin:0;">
+                        <button type="submit"
+                                aria-label="Room {{ u['room_no'] }}, {{ 'locked' if u['locked'] else 'free' }}"
+                                style="width:100%;min-height:76px;border-radius:14px;border:1px solid {{ '#c0392b' if u['locked'] else '#cfcfcf' }};background:{{ '#fdecea' if u['locked'] else '#ffffff' }};color:{{ '#c0392b' if u['locked'] else '#1f1f1f' }};font-size:16px;font-weight:600;padding:8px 4px;cursor:pointer;">
+                            {{ u['room_no'] }}
+                            <span style="display:block;margin-top:4px;font-size:11px;font-weight:500;opacity:.85;">
+                                {{ 'LOCKED' if u['locked'] else 'free' }}
+                            </span>
+                        </button>
+                    </form>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+        </div>
+    </section>
+
+{% endblock %}
