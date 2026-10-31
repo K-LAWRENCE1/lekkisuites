@@ -7,7 +7,8 @@
 
     <section class="page-hero">
         <h1>Room Board</h1>
-        <p>Tap a room to lock it when a guest takes it. Tap again when they leave.</p>
+        <p>Every room is held by the dates of its booking. Tap a free room to lock it,
+           tap a locked room to free it again.</p>
     </section>
 
     <section class="admin">
@@ -27,33 +28,65 @@
                 {% endif %}
             {% endwith %}
 
+            <p class="ticket-sub" style="margin:0 0 14px;">
+                <strong style="color:#1f7a3f;">free</strong> = sellable &middot;
+                <strong style="color:#8a6d1f;">booked / in use</strong> = a guest holds it &middot;
+                <strong style="color:#c0392b;">locked</strong> = you took it out by hand
+            </p>
+
             {% for group in board %}
             <div class="booking-card">
                 <h2>{{ group.type }}</h2>
                 <p class="ticket-sub">
-                    {% if group.locked >= group.total %}
-                        All {{ group.total }} rooms locked — the website is refusing this room type.
+                    {% if group.busy >= group.total %}
+                        All {{ group.total }} rooms taken — the website is refusing this room type.
                     {% else %}
-                        {{ group.locked }} of {{ group.total }} locked.
+                        {{ group.busy }} of {{ group.total }} taken &middot; {{ group.total - group.busy }} still free.
                     {% endif %}
                 </p>
 
-                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:10px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:10px;">
                     {% for u in group.units %}
+                    {% if u.state == 'locked' %}
+                        {% set bord = '#c0392b' %}{% set bg = '#fdecea' %}{% set fg = '#c0392b' %}
+                    {% elif u.state == 'busy' %}
+                        {% set bord = '#e0b354' %}{% set bg = '#fdf6e3' %}{% set fg = '#8a6d1f' %}
+                    {% else %}
+                        {% set bord = '#cfcfcf' %}{% set bg = '#ffffff' %}{% set fg = '#1f1f1f' %}
+                    {% endif %}
                     <form method="POST" action="{{ url_for('admin_room_toggle', room_no=u['room_no']) }}" style="margin:0;">
                         <button type="submit"
-                                aria-label="Room {{ u['room_no'] }}, {{ 'locked' if u['locked'] else 'free' }}"
-                                style="width:100%;min-height:76px;border-radius:14px;border:1px solid {{ '#c0392b' if u['locked'] else '#cfcfcf' }};background:{{ '#fdecea' if u['locked'] else '#ffffff' }};color:{{ '#c0392b' if u['locked'] else '#1f1f1f' }};font-size:16px;font-weight:600;padding:8px 4px;cursor:pointer;">
+                                aria-label="Room {{ u['room_no'] }}, {{ u['label'] }}{% if u['detail'] %}, {{ u['detail'] }}{% endif %}"
+                                style="width:100%;min-height:84px;border-radius:14px;border:1px solid {{ bord }};background:{{ bg }};color:{{ fg }};font-size:16px;font-weight:600;padding:8px 4px;cursor:pointer;">
                             {{ u['room_no'] }}
-                            <span style="display:block;margin-top:4px;font-size:11px;font-weight:500;opacity:.85;">
-                                {{ 'LOCKED' if u['locked'] else 'free' }}
+                            <span style="display:block;margin-top:4px;font-size:11px;font-weight:600;opacity:.9;">
+                                {{ u['label'] }}
                             </span>
+                            {% if u['detail'] %}
+                            <span style="display:block;margin-top:2px;font-size:10px;font-weight:500;opacity:.8;">
+                                {{ u['detail'] }}
+                            </span>
+                            {% endif %}
                         </button>
                     </form>
                     {% endfor %}
                 </div>
             </div>
             {% endfor %}
+
+            <div class="booking-card">
+                <h2>How it works</h2>
+                <p class="ticket-sub" style="line-height:1.6;">
+                    Whoever books a room — online or at the desk — gets a real room number straight
+                    away, so that room turns <strong>booked</strong> and nobody else can be sold it
+                    for the same dates.<br><br>
+                    The room frees itself once its check-out date has passed. You never have to
+                    remember to unlock it. Tap a <strong>booked</strong> tile and the board tells you
+                    who holds it and until when.<br><br>
+                    <strong>locked</strong> is different: that is you pulling a room out by hand
+                    (maintenance, staff use, a guest not recorded yet). Only you can put it back.
+                </p>
+            </div>
 
         </div>
     </section>

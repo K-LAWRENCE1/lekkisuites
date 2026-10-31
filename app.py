@@ -133,32 +133,85 @@ ROOM_INVENTORY = {
 }
 
 
-def rooms_free(conn, room_type, check_in, check_out):
-    """How many rooms of this type are still free for these dates.
+# fix66: a room is held only for the dates of the booking that holds it.
+# Nothing stays locked forever - once a booking's check-out date has passed, that
+# room is free again by itself. No cron job, and nobody has to remember to unlock.
+ACTIVE_BOOKING = ("(status IS NULL OR status NOT IN "
+                  "('Cancelled', 'No-show', 'Checked Out'))")
+
+
+def booking_holds(conn, check_in, check_out):
+    """room_no -> the booking holding that room for these dates.
 
     Two bookings clash when one starts before the other ends and ends after it
-    starts. Cancelled, no-show and checked-out bookings do not hold a room.
-
-    A booking that has already been given a real room number is NOT counted
-    here, because that room is locked on the board instead - counting both
-    would take two rooms off for one guest.
+    starts. Cancelled, no-show and checked-out bookings hold nothing.
     """
+    rows = conn.execute(
+        """
+        SELECT id, name, ticket_id, room_no, room_type, check_in, check_out, status
+        FROM bookings
+        WHERE deleted_at IS NULL
+          AND room_no IS NOT NULL AND room_no != ''
+          AND """ + ACTIVE_BOOKING + """
+          AND check_in < ?
+          AND check_out > ?
+        ORDER BY check_in
+        """,
+        (check_out, check_in),
+    ).fetchall()
+    holds = {}
+    for r in rows:
+        # One room can only be held once for the same dates - first booking wins.
+        holds.setdefault(r["room_no"], r)
+    return holds
+
+
+def room_is_free(conn, room_no, check_in, check_out, holds=None):
+    """Is this exact room free for these dates - not booked, not locked by staff?"""
+    if holds is None:
+        holds = booking_holds(conn, check_in, check_out)
+    if room_no in holds:
+        return False
+    r = conn.execute("SELECT locked FROM rooms WHERE room_no = ?", (room_no,)).fetchone()
+    return not (r and r["locked"])
+
+
+def pick_room(conn, room_type, check_in, check_out):
+    """Pick a real room number for a new booking, or None when the type is full.
+
+    This is what makes the site safe: the guest gets an actual room at the moment
+    they book, so the next guest cannot be handed the same one.
+    """
+    holds = booking_holds(conn, check_in, check_out)
+    for room_no in ROOM_UNITS.get(room_type, []):
+        if room_is_free(conn, room_no, check_in, check_out, holds):
+            return room_no
+    return None
+
+
+def rooms_free(conn, room_type, check_in, check_out):
+    """How many rooms of this type can still be sold for these dates."""
     total = ROOM_INVENTORY.get(room_type)
     if total is None:
         return None
-    row = conn.execute(
+
+    holds = booking_holds(conn, check_in, check_out)
+    units = ROOM_UNITS.get(room_type, [])
+
+    # Bookings made before fix66 have no room number - count one room each.
+    legacy = conn.execute(
         """
-        SELECT COUNT(*) AS taken FROM bookings
+        SELECT COUNT(*) AS n FROM bookings
         WHERE room_type = ?
           AND deleted_at IS NULL
-          AND (status IS NULL OR status NOT IN ('Cancelled', 'No-show', 'Checked Out'))
           AND (room_no IS NULL OR room_no = '')
+          AND """ + ACTIVE_BOOKING + """
           AND check_in < ?
           AND check_out > ?
         """,
         (room_type, check_out, check_in),
     ).fetchone()
-    taken = row["taken"] if row else 0
+    legacy_n = legacy["n"] if legacy else 0
 
     blocked = conn.execute(
         """
@@ -169,15 +222,14 @@ def rooms_free(conn, room_type, check_in, check_out):
         """,
         (room_type, check_out, check_in),
     ).fetchone()
-    held = blocked["held"] if blocked else 0
+    held_n = blocked["held"] if blocked else 0
 
-    locked = conn.execute(
-        "SELECT COUNT(*) AS n FROM rooms WHERE room_type = ? AND locked = 1",
-        (room_type,),
-    ).fetchone()
-    locked_n = locked["n"] if locked else 0
+    free_units = 0
+    for room_no in units:
+        if room_is_free(conn, room_no, check_in, check_out, holds):
+            free_units += 1
 
-    return max(total - taken - held - locked_n, 0)
+    return max(min(free_units, total) - legacy_n - held_n, 0)
 
 
 # ===== ROOM SERVICE MENU =====
@@ -418,6 +470,30 @@ def init_db():
         )
         """
     )
+    # --- Small bookkeeping table so one-time fixes run only once ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_flags (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT
+        )
+        """
+    )
+
+    # fix66: rooms used to be locked by hand, with no dates attached, so a booked
+    # room stayed locked forever. A booking now holds its own room by date, so any
+    # old leftover lock is cleared once and does not come back.
+    done = conn.execute(
+        "SELECT name FROM schema_flags WHERE name = 'fix66_clear_old_locks'"
+    ).fetchone()
+    if not done:
+        conn.execute("UPDATE rooms SET locked = 0, updated_at = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"),))
+        conn.execute(
+            "INSERT INTO schema_flags (name, applied_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            ("fix66_clear_old_locks", datetime.now().strftime("%Y-%m-%d %H:%M")),
+        )
+
     conn.commit()
     conn.close()
 
@@ -655,8 +731,11 @@ def book():
         # fix57: refuse the booking when every room of that type is already
         # taken for those dates, instead of quietly overbooking the hotel.
         conn = get_db()
-        free = rooms_free(conn, room_type, check_in, check_out)
-        if free == 0:
+        # fix66: pick the actual room now, at the moment of booking. That is what
+        # holds it - the next guest cannot be given the same room for the same
+        # dates, whether they book online or walk in.
+        room_no = pick_room(conn, room_type, check_in, check_out)
+        if room_no is None:
             conn.close()
             plain = room_type.replace(" Room", "")
             flash("Sorry, all our {} rooms are taken for those dates. Please choose another room or different dates.".format(plain), "error")
@@ -666,8 +745,8 @@ def book():
         cur = conn.execute(
             """
             INSERT INTO bookings
-                (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+                (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
             """,
             (
                 name,
@@ -679,6 +758,7 @@ def book():
                 int(guests) if guests.isdigit() else 1,
                 special,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
+                room_no,
             ),
         )
         booking_id = cur.lastrowid
@@ -1101,18 +1181,14 @@ def admin_confirm(booking_id):
                      "{} marked as Paid - {} ({} nights x {}) = {}".format(
                          b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
 
-        # fix60: give the booking a real room number and lock that tile, so the
-        # front desk can see at a glance which rooms are taken.
+        # fix66: only older bookings arrive without a room number (new ones get one
+        # the moment the guest books). Give those a room here, by date, so the tile
+        # board and the website agree on what is actually taken.
         if not b["room_no"]:
             conn2 = get_db()
-            unit = conn2.execute(
-                "SELECT room_no FROM rooms WHERE room_type = ? AND locked = 0 ORDER BY room_no LIMIT 1",
-                (b["room_type"],),
-            ).fetchone()
-            if unit:
-                conn2.execute("UPDATE rooms SET locked = 1, updated_at = ? WHERE room_no = ?",
-                              (datetime.now().strftime("%Y-%m-%d %H:%M"), unit["room_no"]))
-                conn2.execute("UPDATE bookings SET room_no = ? WHERE id = ?", (unit["room_no"], booking_id))
+            unit_no = pick_room(conn2, b["room_type"], b["check_in"], b["check_out"])
+            if unit_no:
+                conn2.execute("UPDATE bookings SET room_no = ? WHERE id = ?", (unit_no, booking_id))
                 conn2.commit()
             conn2.close()
 
@@ -1529,20 +1605,23 @@ def admin_walkin():
                 flash("Please fill in name, phone, room type and dates.", "error")
             else:
                 conn = get_db()
-                free = rooms_free(conn, room_type, check_in, check_out)
-                if free == 0:
+                # fix66: a walk-in takes a real room number too, so the website
+                # cannot sell that same room for those same dates.
+                walkin_room = pick_room(conn, room_type, check_in, check_out)
+                if walkin_room is None:
                     conn.close()
                     flash("All {} rooms are already taken for those dates.".format(room_type), "error")
                     return redirect(url_for("admin_walkin"))
                 cur = conn.execute(
                     """
                     INSERT INTO bookings
-                        (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Checked In')
+                        (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Checked In', ?)
                     """,
                     (name, phone, request.form.get("email", "").strip(), room_type, check_in, check_out,
                      int(guests) if guests.isdigit() else 1,
-                     "Walk-in at reception", datetime.now().strftime("%Y-%m-%d %H:%M")),
+                     "Walk-in at reception", datetime.now().strftime("%Y-%m-%d %H:%M"),
+                     walkin_room),
                 )
                 bid = cur.lastrowid
                 conn.execute("UPDATE bookings SET ticket_id = ? WHERE id = ?", ("LK-{:04d}".format(bid), bid))
@@ -1570,18 +1649,45 @@ def admin_rooms():
         return redirect(url_for("admin"))
     conn = get_db()
     rows = conn.execute("SELECT * FROM rooms ORDER BY room_type, room_no").fetchall()
+    today = date.today().isoformat()
+    # Every booking from today onwards, so a tile can say who is in it and until when.
+    holds = booking_holds(conn, today, "9999-12-31")
     conn.close()
 
     board = []
     for rtype in sorted(ROOM_INVENTORY.keys()):
-        units = [r for r in rows if r["room_type"] == rtype]
+        units = []
+        busy = 0
+        for r in [x for x in rows if x["room_type"] == rtype]:
+            b = holds.get(r["room_no"])
+            # A real booking outranks a hand lock: when a guest holds the room, that
+            # is what the tile must say, whatever else is set.
+            if b and b["check_in"] <= today < b["check_out"]:
+                state, label = "busy", "IN USE"
+                detail = "{} out {}".format(b["name"].split()[0], b["check_out"][5:])
+            elif b:
+                state, label = "busy", "BOOKED"
+                detail = "{} from {}".format(b["name"].split()[0], b["check_in"][5:])
+            elif r["locked"]:
+                state, label, detail = "locked", "LOCKED", "by staff"
+            else:
+                state, label, detail = "free", "free", ""
+            if state != "free":
+                busy += 1
+            units.append({
+                "room_no": r["room_no"],
+                "state": state,
+                "label": label,
+                "detail": detail,
+                "booking": bool(b),
+            })
         board.append({
             "type": rtype,
             "units": units,
-            "locked": sum(1 for u in units if u["locked"]),
+            "busy": busy,
             "total": len(units),
         })
-    return render_template("admin_rooms.html", board=board)
+    return render_template("admin_rooms.html", board=board, today=today)
 
 
 @app.route("/admin/rooms/<room_no>/toggle", methods=["POST"])
@@ -1590,15 +1696,32 @@ def admin_room_toggle(room_no):
         return redirect(url_for("admin"))
     conn = get_db()
     r = conn.execute("SELECT * FROM rooms WHERE room_no = ?", (room_no,)).fetchone()
-    if r:
-        new = 0 if r["locked"] else 1
-        conn.execute(
-            "UPDATE rooms SET locked = ?, updated_at = ? WHERE room_no = ?",
-            (new, datetime.now().strftime("%Y-%m-%d %H:%M"), room_no),
-        )
-        conn.commit()
-        log_activity("Rooms", "Room Locked" if new else "Room Freed", room_no,
-                     "{} {} by reception".format(r["room_type"], "locked" if new else "freed"))
+    if not r:
+        conn.close()
+        return redirect(url_for("admin_rooms"))
+
+    # fix66: a room held by a real booking cannot be freed by tapping it - the
+    # guest is still coming. Cancel or check out that booking instead.
+    today = date.today().isoformat()
+    held = booking_holds(conn, today, "9999-12-31").get(room_no)
+    if held and not r["locked"]:
+        conn.close()
+        if held["check_in"] <= today < held["check_out"]:
+            flash("Room {} has a guest in it until {}. Check the booking out to free the room."
+                  .format(room_no, held["check_out"]), "error")
+        else:
+            flash("Room {} is booked from {} for {}. Cancel that booking to free the room."
+                  .format(room_no, held["check_in"], held["name"]), "error")
+        return redirect(url_for("admin_rooms"))
+
+    new = 0 if r["locked"] else 1
+    conn.execute(
+        "UPDATE rooms SET locked = ?, updated_at = ? WHERE room_no = ?",
+        (new, datetime.now().strftime("%Y-%m-%d %H:%M"), room_no),
+    )
+    conn.commit()
+    log_activity("Rooms", "Room Locked" if new else "Room Freed", room_no,
+                 "{} {} by reception".format(r["room_type"], "locked" if new else "freed"))
     conn.close()
     return redirect(url_for("admin_rooms"))
 
