@@ -6,7 +6,9 @@ import csv
 import io
 import json
 import os
+import secrets
 import smtplib
+import time
 from email.message import EmailMessage
 from datetime import datetime, date
 from flask import (Flask, render_template, request, redirect, url_for, session, flash,
@@ -14,7 +16,12 @@ from flask import (Flask, render_template, request, redirect, url_for, session, 
 
 # Create the Flask application
 app = Flask(__name__)
-app.secret_key = "lekkisuites-secret-2026"
+
+# fix67: the secret key signs the admin login cookie. If anybody knows it they can
+# fake a login without ever knowing the password, so it must not be written in the
+# code. Set SECRET_KEY in Render Environment. If it is missing we make a random one
+# at startup, which only means staff have to log in again after a restart.
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 
 # --- Database helper ---
@@ -1016,19 +1023,46 @@ def checkout():
 
 # ===== ADMIN PAGE (view all bookings + food orders) =====
 # Password protected so only hotel staff can see the bookings.
-# fix64: new password - short enough to type, not the hotel name. Only you, Flora and
-# whoever works the front desk should know it.
-ADMIN_PASSWORD = "lekki-desk-26"
+# fix67: the password is no longer written in the code. It lives in Render, under
+# Environment, as ADMIN_PASSWORD. To change it, edit that value and save - no redeploy.
+# If the variable is missing nobody can log in, which is safer than an old default.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or ""
+if not ADMIN_PASSWORD:
+    print("fix67 WARNING: ADMIN_PASSWORD is not set in Render Environment - admin login will refuse everybody.")
+
+# fix67: slow down password guessing. After five wrong tries the same phone is
+# blocked for a minute. Everything is kept in the session, so it needs no database.
+MAX_FAILED_TRIES = 5
+LOCKOUT_SECONDS = 60
 
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        # Login: check the password.
-        if request.form.get("password") == ADMIN_PASSWORD:
-            session["admin_logged_in"] = True
+        # If this phone got the password wrong too many times, make it wait.
+        locked_until = session.get("admin_locked_until", 0)
+        if locked_until and time.time() < locked_until:
+            wait = int(locked_until - time.time()) + 1
+            flash("Too many wrong passwords. Wait %d seconds and try again." % wait, "error")
             return redirect(url_for("admin"))
-        flash("Wrong password. Try again.", "error")
+
+        typed = request.form.get("password", "")
+        # compare_digest checks the password in constant time, so the response itself
+        # does not leak how much of the password was right.
+        if ADMIN_PASSWORD and secrets.compare_digest(typed, ADMIN_PASSWORD):
+            session["admin_logged_in"] = True
+            session.pop("admin_failed_tries", None)
+            session.pop("admin_locked_until", None)
+            return redirect(url_for("admin"))
+
+        tries = session.get("admin_failed_tries", 0) + 1
+        if tries >= MAX_FAILED_TRIES:
+            session["admin_failed_tries"] = 0
+            session["admin_locked_until"] = time.time() + LOCKOUT_SECONDS
+            flash("Too many wrong passwords. Wait a minute and try again.", "error")
+        else:
+            session["admin_failed_tries"] = tries
+            flash("Wrong password. Try again.", "error")
         return redirect(url_for("admin"))
 
     # If not logged in, show the login form.
