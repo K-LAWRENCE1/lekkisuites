@@ -78,6 +78,44 @@
                         </label>
                     </div>
 
+                    <!-- fix70: the guest must accept the policies before the order is placed. -->
+                    <style>
+                        .agree-line {
+                            display: flex;
+                            align-items: flex-start;
+                            gap: 10px;
+                            font-size: 14px;
+                            line-height: 1.5;
+                            color: #333;
+                            background: #f9f7f2;
+                            border: 1px solid #e8d9a8;
+                            border-radius: 8px;
+                            padding: 12px 14px;
+                            margin: 10px 0 18px;
+                            cursor: pointer;
+                        }
+                        .agree-line input {
+                            width: 18px;
+                            height: 18px;
+                            margin-top: 2px;
+                            flex: 0 0 auto;
+                            accent-color: #c9a227;
+                            cursor: pointer;
+                        }
+                        .agree-line a {
+                            color: #0f1c2e;
+                            font-weight: 700;
+                            text-decoration: underline;
+                        }
+                    </style>
+                    <label class="agree-line" for="agree">
+                        <input type="checkbox" id="agree" name="agree" value="yes" required>
+                        <span>I have read and agree to the
+                            <a href="{{ url_for('terms') }}" target="_blank" rel="noopener">Booking Policy</a>
+                            and
+                            <a href="{{ url_for('privacy') }}" target="_blank" rel="noopener">Privacy Policy</a>. *</span>
+                    </label>
+
                     <button type="submit" class="btn-gold">Place Order &rarr;</button>
                     <a href="{{ url_for('dining') }}" class="btn-gold btn-outline">Back to Menu</a>
                 </form>

@@ -747,6 +747,12 @@ def book():
             flash("Please fill in your name, phone, room type and dates.", "error")
             return render_template("book.html", form=request.form, preselect="")
 
+        # fix70: the guest has to tick the policy box. The browser blocks it with
+        # "required", but that can be bypassed, so we check it here too.
+        if request.form.get("agree") != "yes":
+            flash("Please tick the box to accept the Booking Policy and Privacy Policy.", "error")
+            return render_template("book.html", form=request.form, preselect="")
+
         # fix57: refuse the booking when every room of that type is already
         # taken for those dates, instead of quietly overbooking the hotel.
         conn = get_db()
@@ -977,6 +983,12 @@ def checkout():
 
         if not guest_name or not room_number or payment_method not in ("transfer", "cash"):
             flash("Please enter your name, room number and pick a payment method.", "error")
+            return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                                   form=request.form, payment=PAYMENT)
+
+        # fix70: same policy box as the booking form, checked on the server too.
+        if request.form.get("agree") != "yes":
+            flash("Please tick the box to accept the Booking Policy and Privacy Policy.", "error")
             return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
                                    form=request.form, payment=PAYMENT)
 
