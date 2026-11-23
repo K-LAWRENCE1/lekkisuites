@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy | Lekki Suites{% endblock %}
+
+{% block content %}
+
+{% include "legal_styles.html" %}
+
+    <section class="page-hero">
+        <h1>Privacy Policy</h1>
+        <p>How we handle the information you give us</p>
+    </section>
+
+    <section class="legal">
+        <div class="legal-wrap">
+
+            <p class="legal-meta">Lekki Suites &middot; 1 Kayode Otitoju, Lekki Phase 1, Lagos, Nigeria
+                &middot; last updated November 2026</p>
+
+            <p class="legal-lead">This policy explains what information Lekki Suites collects when you use this
+                website, why we collect it, who we share it with and the choices you have. We only ask for what we
+                need to hold your room and serve you.</p>
+
+            <h2>1. Who we are</h2>
+            <p>Lekki Suites is a hotel at 1 Kayode Otitoju, Lekki Phase 1, Lagos, Nigeria. For any question about
+                this policy or your information, email <a href="mailto:{{ hotel_email }}">{{ hotel_email }}</a> or
+                call <a href="tel:{{ hotel_phone_tel }}">{{ hotel_phone_display }}</a>.</p>
+
+            <h2>2. Information we collect</h2>
+            <ul>
+                <li><strong>When you make a reservation:</strong> your name, phone number, email address, number of
+                    guests, the room type, your check-in and check-out dates, and any special requests you type
+                    into the form.</li>
+                <li><strong>When you order food or drink:</strong> the name you give, your room number and your
+                    phone number.</li>
+                <li><strong>When you check your booking ticket:</strong> the reference you enter, so we can show the
+                    booking that belongs to it.</li>
+                <li><strong>Technical information:</strong> your browser sends basic request information (such as
+                    your IP address and the pages you open) to our hosting provider as part of serving the
+                    site.</li>
+            </ul>
+            <p>We do not collect your card or bank details on this website. Payment is completed through the channel
+                shown at checkout, and any card details you enter there are handled by that payment provider, not
+                stored by us.</p>
+
+            <h2>3. Why we use it</h2>
+            <ul>
+                <li>To confirm, hold and manage your reservation.</li>
+                <li>To contact you about your booking, your arrival or your food order.</li>
+                <li>To prepare your room and pass your requests to the right staff.</li>
+                <li>To keep booking and payment records for accounting and legal purposes.</li>
+                <li>To keep the site secure and working.</li>
+            </ul>
+
+            <h2>4. Cookies and local storage</h2>
+            <p>We use a small session cookie to remember your food cart between pages and, for staff, to keep an
+                admin login active. We also store a flag on your device so the site knows you have already dismissed
+                the &ldquo;add to home screen&rdquo; prompt. We do not use advertising or cross-site tracking
+                cookies.</p>
+
+            <h2>5. Who we share it with</h2>
+            <ul>
+                <li><strong>Our staff</strong>, at the front desk and in the kitchen, so your booking or order can
+                    be served.</li>
+                <li><strong>Service providers</strong> who run parts of the service for us &mdash; hosting, and our
+                    email and payment providers &mdash; only for that purpose.</li>
+                <li><strong>Authorities</strong>, where the law requires it, or where we must register guests as
+                    required by Nigerian hospitality regulations.</li>
+            </ul>
+            <p>We do not sell your information, and we do not pass it to anyone for marketing.</p>
+
+            <h2>6. How long we keep it</h2>
+            <p>Booking and order records are kept for as long as we need them for our accounts and for any legal or
+                tax requirement. If you ask us to delete information we are not required to keep, we will do so.</p>
+
+            <h2>7. Your choices and rights</h2>
+            <ul>
+                <li>You can ask to see the information we hold about you.</li>
+                <li>You can ask us to correct anything that is wrong.</li>
+                <li>You can ask us to delete information we no longer need.</li>
+                <li>You can ask us to stop contacting you for anything other than your booking.</li>
+            </ul>
+            <p>Send any of these requests to <a href="mailto:{{ hotel_email }}">{{ hotel_email }}</a> and we will
+                respond within a reasonable time.</p>
+
+            <h2>8. Security</h2>
+            <p>The site is served over a secure connection and access to booking records is limited to staff who
+                need it. No system is perfect, so please do not send sensitive documents by ordinary email.</p>
+
+            <h2>9. Children</h2>
+            <p>This website is not intended for children to use on their own. Bookings should be made by an adult
+                guest, who is responsible for the information given about everyone in the party.</p>
+
+            <h2>10. Changes to this policy</h2>
+            <p>If our practice changes, we will update this page and change the date at the top. The version shown
+                here is the one that applies when you use the site.</p>
+
+            <p class="legal-next">See also: <a href="{{ url_for('terms') }}">Booking Policy &amp; Terms of Service</a></p>
+
+        </div>
+    </section>
+
+{% endblock %}

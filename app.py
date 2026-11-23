@@ -655,13 +655,25 @@ def robots_txt():
 
 @app.route("/sitemap.xml")
 def sitemap_xml():
-    pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket"]
+    pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket",
+             "/terms", "/privacy"]
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for page in pages:
         parts.append("<url><loc>{}{}</loc><changefreq>weekly</changefreq></url>".format(SITE_URL, page))
     parts.append("</urlset>")
     return Response("\n".join(parts), mimetype="application/xml")
+
+
+# ===== Legal pages (fix68): booking policy + privacy =====
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
 
 
 # ===== PWA (fix36): manifest + service worker served from the site root =====

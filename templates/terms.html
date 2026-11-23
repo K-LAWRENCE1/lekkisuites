@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Booking Policy &amp; Terms of Service | Lekki Suites{% endblock %}
+
+{% block content %}
+
+{% include "legal_styles.html" %}
+
+    <section class="page-hero">
+        <h1>Booking Policy</h1>
+        <p>Terms of service for online reservations</p>
+    </section>
+
+    <section class="legal">
+        <div class="legal-wrap">
+
+            <p class="legal-meta">Lekki Suites &middot; 1 Kayode Otitoju, Lekki Phase 1, Lagos, Nigeria</p>
+
+            <p class="legal-lead">Thank you for choosing Lekki Suites. We are committed to providing our guests with a
+                comfortable, safe and enjoyable stay. To ensure a smooth booking and check-in experience, kindly read
+                and understand our booking policies before making a reservation.</p>
+
+            <h2>1. Reservation and Booking Confirmation</h2>
+            <ul>
+                <li>All reservations are subject to room availability.</li>
+                <li>A booking is only confirmed upon receipt of full payment.</li>
+                <li>We do not hold or reserve rooms without payment.</li>
+                <li>Guests are required to provide accurate personal information and valid identification details
+                    when making a reservation.</li>
+                <li>Booking confirmation will be communicated once payment has been verified.</li>
+            </ul>
+
+            <h2>2. Payment Policy</h2>
+            <ul>
+                <li>Full payment is required before check-in.</li>
+                <li>Guests are advised to confirm room availability and rates before making payment.</li>
+                <li>Any additional services or expenses incurred during the stay must be settled before checkout.</li>
+                <li>Proof of payment may be requested where necessary.</li>
+            </ul>
+
+            <h2>3. Check-in and Check-out Policy</h2>
+            <ul>
+                <li>Check-in: 1:00 PM</li>
+                <li>Check-out: 12:00 Noon</li>
+                <li>Early check-in and late check-out are subject to availability and may attract additional charges.</li>
+                <li>Guests who check in before 7:00 AM must check out the same day.</li>
+                <li>Guests who wish to extend their stay must inform the front desk and make payment before the
+                    original check-out time.</li>
+                <li>Failure to check out at the stipulated time without prior approval may attract additional
+                    charges.</li>
+            </ul>
+
+            <h2>4. Cancellation and Refund Policy</h2>
+            <ul>
+                <li>All bookings are non-refundable once payment has been made.</li>
+                <li>Cancellations or changes to reservations do not automatically qualify for a refund.</li>
+                <li>In exceptional circumstances, management may consider a one-time rescheduling, subject to
+                    approval and availability.</li>
+                <li>Guests are advised to confirm their travel plans before completing payment.</li>
+            </ul>
+
+            <h2>5. Booking Modification and Extension</h2>
+            <ul>
+                <li>Requests to change booking dates or room categories must be communicated to management in
+                    advance.</li>
+                <li>All modifications are subject to availability and applicable rate differences.</li>
+                <li>Room extensions must be approved and paid for before the current booking expires.</li>
+            </ul>
+
+            <h2>6. Guest Identification and Registration</h2>
+            <ul>
+                <li>All guests must present a valid means of identification upon arrival.</li>
+                <li>Visitors may be required to register at the reception.</li>
+                <li>Management reserves the right to refuse accommodation where proper identification or booking
+                    verification cannot be provided.</li>
+            </ul>
+
+            <h2>7. Guest Conduct and Hotel Rules</h2>
+            <ul>
+                <li>Guests are expected to maintain proper conduct and respect other guests and hotel staff.</li>
+                <li>Smoking is prohibited in designated non-smoking areas.</li>
+                <li>Illegal activities, violence, harassment and disruptive behaviour are strictly prohibited.</li>
+                <li>Guests are responsible for any damage to hotel property caused by themselves or their visitors.</li>
+                <li>Management reserves the right to terminate a stay without a refund where a guest seriously
+                    violates hotel rules.</li>
+            </ul>
+
+            <h2>8. Personal Belongings and Valuables</h2>
+            <ul>
+                <li>Guests are responsible for their personal belongings and valuables throughout their stay.</li>
+                <li>Lekki Suites will not be held responsible for personal items left unattended or lost due to
+                    negligence.</li>
+            </ul>
+
+            <h2>9. Right of Admission</h2>
+            <p>Lekki Suites reserves the right to refuse admission or discontinue accommodation where a guest
+                violates hotel policies, provides false booking information or engages in activities that
+                compromise the safety and comfort of others.</p>
+
+            <h2>10. Acceptance of Policy</h2>
+            <p>By completing an online reservation and making payment, guests acknowledge that they have read,
+                understood and agreed to abide by the terms and conditions outlined in this policy.</p>
+
+            <p class="legal-sign">Thank you for choosing Lekki Suites. We look forward to welcoming you and making
+                your stay comfortable and memorable.</p>
+            <p class="legal-sign"><strong>Lekki Suites Management</strong><br>
+                Lekki Phase 1, Lagos, Nigeria.</p>
+
+            <p class="legal-next">See also: <a href="{{ url_for('privacy') }}">Privacy Policy</a></p>
+
+        </div>
+    </section>
+
+{% endblock %}
