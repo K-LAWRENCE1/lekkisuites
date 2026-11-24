@@ -3,6 +3,8 @@
 # Flask is a lightweight web framework that lets us serve web pages.
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -397,6 +399,12 @@ def init_db():
     # be restored from the History page and its ticket number is never reused.
     if "deleted_at" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN deleted_at TEXT")
+    # fix71: Paystack. We keep the payment reference Paystack gave us, and when
+    # the money landed, so a booking can never be marked paid by guesswork.
+    if "pay_reference" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN pay_reference TEXT")
+    if "paid_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN paid_at TEXT")
 
     # --- Food orders table (room service) ---
     conn.execute(
@@ -843,12 +851,233 @@ def book():
             payment=PAYMENT,
             nights=nights,
             total_amount=total_amount,
+            # fix71: only show the "Pay Online" button when Paystack is configured.
+            paystack_ready=paystack_enabled(),
         )
 
     # GET request - just show the empty form.
     # If they clicked "Book Now" on a room, pre-select that room.
     preselect = request.args.get("room", "")
     return render_template("book.html", form=None, preselect=preselect)
+
+
+# ===== PAYSTACK ONLINE PAYMENT (fix71) =====
+# Set PAYSTACK_SECRET in the Render Environment. Until it is set, nothing here
+# runs and guests keep paying by bank transfer, exactly as before.
+PAYSTACK_SECRET = (os.environ.get("PAYSTACK_SECRET") or "").strip()
+PAYSTACK_BASE = "https://api.paystack.co"
+
+
+def paystack_enabled():
+    return bool(PAYSTACK_SECRET)
+
+
+def paystack_request(path, payload=None, method="POST"):
+    """Talk to Paystack. Returns (ok, data)."""
+    import urllib.request
+    import urllib.error
+
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(PAYSTACK_BASE + path, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + PAYSTACK_SECRET)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return True, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        try:
+            return False, json.loads(err.read().decode("utf-8"))
+        except Exception:
+            return False, {"message": "Paystack returned error {}".format(err.code)}
+    except Exception as err:
+        return False, {"message": str(err)}
+
+
+def nights_between(check_in, check_out):
+    try:
+        n = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+    except (ValueError, TypeError):
+        return 0
+    return n if n > 0 else 0
+
+
+def mark_booking_paid(ticket_id, reference):
+    """Mark a booking as paid. Called by the callback AND the webhook, so it has
+    to be harmless if it happens twice."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM bookings WHERE ticket_id = ?",
+        (ticket_id,),
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return False
+    if (row["status"] or "").lower() in ("confirmed", "paid"):
+        conn.close()
+        return True
+    conn.execute(
+        "UPDATE bookings SET status = 'Confirmed', pay_reference = ?, paid_at = ? WHERE ticket_id = ?",
+        (reference, datetime.now().strftime("%Y-%m-%d %H:%M"), ticket_id),
+    )
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Payment received", ticket_id,
+                 "{} paid online for {} (ref {})".format(row["name"], row["room_type"], reference))
+
+    # fix72: tell the guest their booking is paid, and send the hotel a copy so
+    # reception can see it without opening the admin page.
+    nights = nights_between(row["check_in"], row["check_out"])
+    total = ROOM_PRICES.get(row["room_type"], 0) * max(nights, 1)
+    receipt = (
+        "Hello {name},\n\n"
+        "Payment received - your booking is CONFIRMED.\n\n"
+        "Ticket:    {ticket}\n"
+        "Room:      {room}\n"
+        "Check-in:  {check_in}\n"
+        "Check-out: {check_out}\n"
+        "Nights:    {nights}\n"
+        "Paid:      NGN {total:,}\n"
+        "Reference: {ref}\n\n"
+        "Keep this email - the ticket number is what reception will ask for.\n"
+        "Your ticket: https://lekkisuites.com/ticket (enter {ticket})\n\n"
+        "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+        "Phone/WhatsApp: +234 809 229 9428\n\n"
+        "Thank you for choosing Lekki Suites.\n"
+    ).format(name=row["name"], ticket=ticket_id, room=row["room_type"],
+             check_in=row["check_in"], check_out=row["check_out"],
+             nights=nights, total=total, ref=reference)
+    if (row["email"] or "").strip():
+        send_email(row["email"], "Booking {} confirmed - paid - Lekki Suites".format(ticket_id), receipt)
+    if HOTEL_EMAIL:
+        send_email(HOTEL_EMAIL, "PAID booking {} - {} - NGN {:,}".format(ticket_id, row["name"], total), receipt)
+    return True
+
+
+def find_booking_by_reference(reference):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM bookings WHERE pay_reference = ? ORDER BY id DESC", (reference,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+@app.route("/pay/<ticket_id>", methods=["GET", "POST"])
+def pay(ticket_id):
+    """Start a Paystack payment for one ticket."""
+    ticket_id = (ticket_id or "").strip().upper()
+    if not paystack_enabled():
+        flash("Online payment is not switched on yet. Please use the bank transfer details on your ticket.", "error")
+        return redirect(url_for("ticket"))
+
+    conn = get_db()
+    booking = conn.execute(
+        "SELECT * FROM bookings WHERE ticket_id = ?", (ticket_id,)
+    ).fetchone()
+    conn.close()
+    if booking is None:
+        flash("We could not find that ticket number.", "error")
+        return redirect(url_for("ticket"))
+    if (booking["status"] or "").lower() in ("confirmed", "paid"):
+        flash("This booking is already paid. Nothing more to do.", "success")
+        return redirect(url_for("ticket"))
+
+    nights = nights_between(booking["check_in"], booking["check_out"])
+    amount = ROOM_PRICES.get(booking["room_type"], 0) * max(nights, 1)
+    email = (booking["email"] or "").strip()
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip() or email
+        if "@" not in email or "." not in email.split("@")[-1]:
+            flash("We need a valid email address so Paystack can send the receipt.", "error")
+            return render_template("pay.html", booking=booking, amount=amount,
+                                   nights=nights, email=email)
+        reference = "LS{}-{}".format(ticket_id.replace("LK-", ""), secrets.token_hex(6))
+        ok, data = paystack_request("/transaction/initialize", {
+            "email": email,
+            "amount": amount * 100,  # Paystack counts in kobo
+            "currency": "NGN",
+            "reference": reference,
+            "callback_url": url_for("payment_callback", _external=True),
+            "metadata": {"ticket": ticket_id, "guest": booking["name"]},
+        })
+        if ok and data.get("status") and data.get("data", {}).get("authorization_url"):
+            conn = get_db()
+            conn.execute("UPDATE bookings SET pay_reference = ?, email = ? WHERE ticket_id = ?",
+                         (reference, email, ticket_id))
+            conn.commit()
+            conn.close()
+            return redirect(data["data"]["authorization_url"])
+        flash("Paystack could not start the payment: {}".format(data.get("message", "unknown error")), "error")
+        return render_template("pay.html", booking=booking, amount=amount,
+                               nights=nights, email=email)
+
+    return render_template("pay.html", booking=booking, amount=amount,
+                           nights=nights, email=email)
+
+
+@app.route("/payment/callback")
+def payment_callback():
+    """Paystack sends the guest back here. We do not trust the browser: we ask
+    Paystack itself whether the money really moved."""
+    reference = (request.args.get("reference") or request.args.get("trxref") or "").strip()
+    if not reference:
+        flash("Payment was cancelled.", "error")
+        return redirect(url_for("ticket"))
+
+    booking = find_booking_by_reference(reference)
+    if booking is None:
+        flash("We could not match that payment to a booking. Please show your receipt at reception.", "error")
+        return redirect(url_for("ticket"))
+
+    ok, data = paystack_request("/transaction/verify/" + reference, method="GET")
+    info = data.get("data") or {}
+    if ok and data.get("status") and info.get("status") == "success":
+        expected = ROOM_PRICES.get(booking["room_type"], 0) * max(
+            nights_between(booking["check_in"], booking["check_out"]), 1)
+        paid = int(info.get("amount") or 0) // 100
+        if paid < expected:
+            app.logger.error("Paystack amount mismatch on %s: paid %s expected %s",
+                             booking["ticket_id"], paid, expected)
+            flash("The amount paid does not match this booking. Please contact reception.", "error")
+            return redirect(url_for("ticket"))
+        mark_booking_paid(booking["ticket_id"], reference)
+        return render_template("pay_success.html", ticket_id=booking["ticket_id"],
+                               amount=paid, name=booking["name"],
+                               room_type=booking["room_type"],
+                               check_in=booking["check_in"], check_out=booking["check_out"])
+
+    flash("That payment was not successful. You can try again or pay at the hotel.", "error")
+    return redirect(url_for("pay", ticket_id=booking["ticket_id"]))
+
+
+@app.route("/paystack/webhook", methods=["POST"])
+def paystack_webhook():
+    """Paystack calls this directly, whether or not the guest comes back to the
+    site. The signature proves the call really came from Paystack."""
+    if not paystack_enabled():
+        return ("", 200)
+    raw = request.get_data() or b""
+    signature = request.headers.get("x-paystack-signature", "")
+    expected = hmac.new(PAYSTACK_SECRET.encode("utf-8"), raw, hashlib.sha512).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return ("invalid signature", 401)
+
+    try:
+        event = json.loads(raw.decode("utf-8") or "{}")
+    except ValueError:
+        return ("", 200)
+
+    if event.get("event") == "charge.success":
+        info = event.get("data") or {}
+        reference = info.get("reference", "")
+        ticket_id = ((info.get("metadata") or {}).get("ticket") or "").strip()
+        if not ticket_id and reference:
+            booked = find_booking_by_reference(reference)
+            ticket_id = booked["ticket_id"] if booked else ""
+        if ticket_id:
+            mark_booking_paid(ticket_id, reference)
+    return ("", 200)
 
 
 # ===== CHECK TICKET (guest or reception verifies a booking) =====

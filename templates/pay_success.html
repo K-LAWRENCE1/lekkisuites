@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Payment received | Lekki Suites{% endblock %}
+
+{% block content %}
+
+    <section class="page-hero">
+        <h1>Payment Received</h1>
+        <p>Thank you — your booking is now confirmed.</p>
+    </section>
+
+    <section class="booking">
+        <div class="container">
+            <div class="ticket">
+                <div class="ticket-top">
+                    <div>
+                        <span class="ticket-label">Ticket Number</span>
+                        <span class="ticket-no">{{ ticket_id }}</span>
+                    </div>
+                    <span class="status-badge status-confirmed">Paid</span>
+                </div>
+
+                <h2>Guest: {{ name }}</h2>
+
+                <div class="ticket-grid">
+                    <div class="ticket-item"><span class="ticket-label">Room Type</span><span class="ticket-val">{{ room_type }}</span></div>
+                    <div class="ticket-item"><span class="ticket-label">Check-in</span><span class="ticket-val">{{ check_in }}</span></div>
+                    <div class="ticket-item"><span class="ticket-label">Check-out</span><span class="ticket-val">{{ check_out }}</span></div>
+                    <div class="ticket-item"><span class="ticket-label">Amount Paid</span><span class="ticket-val">&#8358; {{ '{:,}'.format(amount) }}</span></div>
+                </div>
+
+                <div class="ticket-note">
+                    Show this ticket number at reception when you arrive. A receipt has been sent to the
+                    email address you gave Paystack, and our front desk can see the payment already.
+                </div>
+
+                <a href="{{ url_for('home') }}" class="btn-gold">Back to Home</a>
+            </div>
+        </div>
+    </section>
+
+{% endblock %}

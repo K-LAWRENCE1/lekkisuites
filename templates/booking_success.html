@@ -35,7 +35,14 @@
 
                 <div class="payment-box">
                     <h3>How to Pay</h3>
+                    {% if paystack_ready %}
+                    <p><strong>Pay now online</strong> with your card, bank transfer or USSD — your booking is
+                        confirmed the moment the payment goes through.</p>
+                    <a href="{{ url_for('pay', ticket_id=ticket_id) }}" class="btn-gold">Pay &#8358; {{ '{:,}'.format(total_amount) }} Online</a>
+                    <p style="margin-top:18px;">Or transfer to the hotel account below and send the receipt on WhatsApp:</p>
+                    {% else %}
                     <p>Transfer your payment to the hotel account below, then send the receipt on WhatsApp to confirm your booking:</p>
+                    {% endif %}
                     <table class="pay-table">
                         <tr><th>Bank</th><td>{{ payment.bank }}</td></tr>
                         <tr><th>Account Name</th><td>{{ payment.account_name }}</td></tr>
