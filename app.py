@@ -664,7 +664,7 @@ def robots_txt():
 @app.route("/sitemap.xml")
 def sitemap_xml():
     pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket",
-             "/terms", "/privacy"]
+             "/terms", "/privacy", "/refund"]
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for page in pages:
@@ -682,6 +682,13 @@ def terms():
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
+
+
+# fix73: Paystack's activation review asks for a separate Refund and Cancellation
+# policy, not just a section inside the booking terms.
+@app.route("/refund")
+def refund():
+    return render_template("refund.html")
 
 
 # ===== PWA (fix36): manifest + service worker served from the site root =====

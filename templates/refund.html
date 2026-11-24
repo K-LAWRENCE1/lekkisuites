@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Refund &amp; Cancellation Policy | Lekki Suites{% endblock %}
+
+{% block content %}
+
+{% include "legal_styles.html" %}
+
+    <section class="page-hero">
+        <h1>Refund &amp; Cancellation</h1>
+        <p>Cancellations, modifications and refunds</p>
+    </section>
+
+    <section class="legal">
+        <div class="legal-wrap">
+
+            <p class="legal-meta">Lekki Suites &middot; 1 Kayode Otitoju, Lekki Phase 1, Lagos, Nigeria</p>
+
+            <p class="legal-lead">Please read our cancellation and refund terms carefully before completing payment
+                for a reservation.</p>
+
+            <h2>1. Cancellation and Refund Policy</h2>
+            <ul>
+                <li>All bookings are non-refundable once payment has been made.</li>
+                <li>Cancellations or changes to reservations do not automatically qualify for a refund.</li>
+                <li>In exceptional circumstances, management may consider a one-time rescheduling, subject to
+                    approval and availability.</li>
+                <li>Guests are advised to confirm their travel plans before completing payment.</li>
+            </ul>
+
+            <h2>2. Booking Modification and Extension</h2>
+            <ul>
+                <li>Requests to change booking dates or room categories must be communicated to management in
+                    advance.</li>
+                <li>All modifications are subject to availability and applicable rate differences.</li>
+                <li>Room extensions must be approved and paid for before the current booking expires.</li>
+            </ul>
+
+            <h2>3. No-Show and Early Departure</h2>
+            <ul>
+                <li>If a guest does not arrive on the booked arrival date and does not contact the hotel, the booking
+                    is treated as a no-show and is not refundable.</li>
+                <li>Leaving before the booked check-out date does not create a refund for the unused nights.</li>
+            </ul>
+
+            <h2>4. When the Hotel Cannot Honour a Booking</h2>
+            <p>If Lekki Suites is unable to provide the room that has been paid for &mdash; for example because of a
+                maintenance fault, a double booking, or an event outside the hotel's control &mdash; management will
+                contact the guest directly to arrange a suitable alternative room or a refund of the amount paid for
+                the affected nights.</p>
+
+            <h2>5. How Refunds Are Paid</h2>
+            <ul>
+                <li>Where a refund is approved, it is returned to the same card or account used for the payment.
+                    A refund cannot be sent to a different account.</li>
+                <li>Online payments are processed by Paystack, so the refund appears on your statement once your bank
+                    has cleared it. How long that takes is set by your bank, not by the hotel.</li>
+                <li>Payments made by bank transfer or cash at reception are refunded by the hotel directly.</li>
+            </ul>
+
+            <h2>6. How to Request a Cancellation or Refund</h2>
+            <p>Contact the hotel on <a href="tel:+2348092299428">+234 809 229 9428</a> or
+                <a href="mailto:reservations@lekkisuites.com">reservations@lekkisuites.com</a>, quoting your ticket
+                number, the name on the booking, the dates involved and the reason for the request. The front desk
+                will confirm in writing whether the request has been approved.</p>
+
+            <h2>7. Related Policies</h2>
+            <p>This page should be read together with our Booking Policy, which covers check-in and check-out times,
+                identification, hotel rules and guest conduct.</p>
+
+            <p class="legal-sign"><strong>Lekki Suites Management</strong><br>
+                Lekki Phase 1, Lagos, Nigeria.</p>
+
+            <p class="legal-next">See also:
+                <a href="{{ url_for('terms') }}">Booking Policy</a> &middot;
+                <a href="{{ url_for('privacy') }}">Privacy Policy</a></p>
+
+        </div>
+    </section>
+
+{% endblock %}
