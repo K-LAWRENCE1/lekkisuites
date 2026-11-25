@@ -1109,7 +1109,14 @@ def ticket():
         conn.close()
         if b:
             cls, label = ticket_display(b)
-            return render_template("ticket.html", b=b, status_class=cls, status_label=label)
+            # fix76: a guest who opens their ticket again can still pay online,
+            # so the button must live here too, not only on the success page.
+            nights = nights_between(b["check_in"], b["check_out"])
+            pay_amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 1)
+            still_pending = (b["status"] or "").lower() in ("pending", "", "holding", "upcoming")
+            return render_template("ticket.html", b=b, status_class=cls, status_label=label,
+                                   nights=nights, pay_amount=pay_amount,
+                                   can_pay=paystack_enabled() and still_pending)
         if o:
             # fix54: order items may be stored as {id: qty} or as a list of
             # entries, depending on which version created the order. Accept both.

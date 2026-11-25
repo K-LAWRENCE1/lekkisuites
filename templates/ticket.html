@@ -51,6 +51,14 @@
                         {% if b.requests %}
                             <div class="ticket-note"><strong>Requests:</strong> {{ b.requests }}</div>
                         {% endif %}
+                        {% if can_pay %}
+                            <div class="payment-box" style="margin-top:18px;">
+                                <h3>Pay for this booking</h3>
+                                <p>Total: <strong>&#8358; {{ '{:,}'.format(pay_amount) }}</strong>{% if nights %} for {{ nights }} night{{ '' if nights == 1 else 's' }}{% endif %}</p>
+                                <p>Pay online and the booking is confirmed straight away, or pay at the desk when you arrive.</p>
+                                <a href="{{ url_for('pay', ticket_id=b.ticket_id) }}" class="btn-gold">Pay &#8358; {{ '{:,}'.format(pay_amount) }} Online</a>
+                            </div>
+                        {% endif %}
                         <div class="ticket-note">
                             This ticket is valid from <strong>{{ b.check_in }}</strong> to <strong>{{ b.check_out }}</strong>.
                             After <strong>{{ b.check_out }}</strong> it expires.
