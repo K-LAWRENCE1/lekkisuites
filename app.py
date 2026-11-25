@@ -888,6 +888,11 @@ def paystack_request(path, payload=None, method="POST"):
     req = urllib.request.Request(PAYSTACK_BASE + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + PAYSTACK_SECRET)
     req.add_header("Content-Type", "application/json")
+    # fix77: Paystack sits behind Cloudflare, and Cloudflare answers the default
+    # "Python-urllib/x.y" signature with a plain-text 403 ("error code: 1010")
+    # instead of JSON. A normal User-Agent gets us real API responses again.
+    req.add_header("User-Agent", "LekkiSuites/1.0 (+https://lekkisuites.com)")
+    req.add_header("Accept", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=25) as resp:
             return True, json.loads(resp.read().decode("utf-8"))
@@ -895,7 +900,12 @@ def paystack_request(path, payload=None, method="POST"):
         try:
             return False, json.loads(err.read().decode("utf-8"))
         except Exception:
-            return False, {"message": "Paystack returned error {}".format(err.code)}
+            try:
+                body = err.read().decode("utf-8", "replace").strip()[:200]
+            except Exception:
+                body = ""
+            return False, {"message": "Paystack returned error {}{}".format(
+                err.code, (" - " + body) if body else "")}
     except Exception as err:
         return False, {"message": str(err)}
 
