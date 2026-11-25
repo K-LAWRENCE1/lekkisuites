@@ -2088,6 +2088,97 @@ def _admin_diagnostic(error):
             + tb.replace("&", "&amp;").replace("<", "&lt;") + "</pre>"), 500
 
 
+# ===== START FRESH (fix78) =====
+# wipe every booking and food order, then put the ticket counter back to 1 so
+# the next real guest gets LK-0001. Only reachable while logged into the admin.
+# The ticketing number is the database row id, so deleting rows alone is not
+# enough - the counter has to be reset as well, and that differs on SQLite
+# (a laptop) vs Postgres (Render).
+RESET_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start fresh - Lekki Suites admin</title>
+<style>
+body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0f1c33;color:#fff;
+     display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;color:#12203a;border-radius:16px;padding:26px;max-width:520px;width:100%}
+h1{font-size:20px;margin:0 0 12px}
+p{line-height:1.5;font-size:14px}
+.warn{background:#fff2f2;border:1px solid #f0b4b4;color:#8a1c1c;border-radius:10px;
+      padding:12px;font-size:14px;margin:14px 0}
+input{width:100%;padding:12px;border:1px solid #c8d0dc;border-radius:10px;font-size:15px;
+      box-sizing:border-box;margin:6px 0 14px}
+button{width:100%;padding:14px;border:0;border-radius:10px;background:#c8102e;color:#fff;
+       font-size:16px;font-weight:600;cursor:pointer}
+a{display:block;text-align:center;margin-top:14px;color:#12203a;font-size:14px}
+</style></head><body><div class="card">
+<h1>Start fresh</h1>
+<p>This deletes <strong>every booking</strong> and <strong>every food order</strong>, plus the
+activity history, then puts the ticket counter back to 1. The next booking becomes
+<strong>LK-0001</strong>.</p>
+<div class="warn">There is no undo. Right now the database holds <strong>COUNT_PLACEHOLDER
+booking(s)</strong>.</div>
+<form method="post">
+  <p style="margin:0">Type <strong>RESET</strong> to confirm:</p>
+  <input name="confirm" autocomplete="off" placeholder="RESET">
+  <p style="margin:0">Admin password:</p>
+  <input name="password" type="password" autocomplete="off" placeholder="Admin password">
+  <button type="submit">Delete everything and restart numbering</button>
+</form>
+<a href="/admin">Back to admin</a>
+</div></body></html>"""
+
+
+@app.route("/admin/reset", methods=["GET", "POST"])
+def admin_reset():
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0]
+    conn.close()
+
+    if request.method == "POST":
+        if (request.form.get("confirm") or "").strip().upper() != "RESET":
+            flash("Type RESET in the box to confirm.", "error")
+            return redirect(url_for("admin_reset"))
+
+        # fix79: a second lock. Typing RESET is not enough - the admin password is
+        # required too, so a stray tap (or a guest poking at a reception screen)
+        # can never wipe the bookings.
+        typed_password = request.form.get("password", "")
+        if not ADMIN_PASSWORD or not secrets.compare_digest(typed_password, ADMIN_PASSWORD):
+            flash("Wrong admin password. Nothing was deleted.", "error")
+            return redirect(url_for("admin_reset"))
+
+        import db as _db
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM bookings")
+            conn.execute("DELETE FROM food_orders")
+            conn.execute("DELETE FROM activity_log")
+            conn.commit()
+            # Put the numbering back to 1 so the next booking is LK-0001.
+            try:
+                if getattr(_db, "DATABASE_URL", ""):
+                    conn.execute("SELECT setval(pg_get_serial_sequence('bookings', 'id'), 1, false)")
+                    conn.execute("SELECT setval(pg_get_serial_sequence('food_orders', 'id'), 1, false)")
+                else:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('bookings', 'food_orders')")
+                conn.commit()
+            except Exception as err:
+                app.logger.warning("fix78: counter reset failed: %s", err)
+                flash("Bookings were cleared, but the ticket counter could not be reset: %s" % err, "error")
+                return redirect(url_for("admin"))
+        finally:
+            conn.close()
+
+        flash("Database cleared. The next booking will be LK-0001.", "success")
+        return redirect(url_for("admin"))
+
+    html = RESET_PAGE.replace("COUNT_PLACEHOLDER", str(total))
+    return Response(html, mimetype="text/html")
+
+
 # This lets us run the website by typing:  python app.py
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
