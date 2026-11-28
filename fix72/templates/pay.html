@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Pay for {{ booking.ticket_id }} | Lekki Suites{% endblock %}
+
+{% block content %}
+
+    <section class="page-hero">
+        <h1>Pay Online</h1>
+        <p>Secure payment by card, bank transfer or USSD — handled by Paystack.</p>
+    </section>
+
+    <section class="booking">
+        <div class="container">
+            <div class="booking-card">
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="flash flash-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <h2 class="checkout-h">Booking {{ booking.ticket_id }}</h2>
+                <table class="pay-table order-summary">
+                    <tr><th>Guest</th><td>{{ booking.name }}</td></tr>
+                    <tr><th>Room</th><td>{{ booking.room_type }}</td></tr>
+                    <tr><th>Check-in</th><td>{{ booking.check_in }}</td></tr>
+                    <tr><th>Check-out</th><td>{{ booking.check_out }}</td></tr>
+                    <tr><th>Nights</th><td>{{ nights }}</td></tr>
+                    <tr><th>Total to pay</th><td><strong>&#8358; {{ '{:,}'.format(amount) }}</strong></td></tr>
+                </table>
+
+                <form method="POST" action="{{ url_for('pay', ticket_id=booking.ticket_id) }}">
+                    <div class="form-group">
+                        <label for="email">Email for your receipt *</label>
+                        <input type="email" id="email" name="email" required value="{{ email }}"
+                               placeholder="you@example.com">
+                    </div>
+                    <button type="submit" class="btn-gold">Pay &#8358; {{ '{:,}'.format(amount) }} with Paystack</button>
+                    <a href="{{ url_for('ticket') }}" class="btn-gold btn-outline">Pay at the hotel instead</a>
+                </form>
+
+                <div class="ticket-note">
+                    You will be sent to Paystack's secure page to finish the payment. Your card details
+                    never touch this website — we only receive confirmation that the payment went through.
+                </div>
+            </div>
+        </div>
+    </section>
+
+{% endblock %}

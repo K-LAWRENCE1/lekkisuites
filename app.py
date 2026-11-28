@@ -117,10 +117,13 @@ def send_email(to_addr, subject, body):
 
 # --- Room prices (per night), used to estimate revenue ---
 ROOM_PRICES = {
-    "Standard Room": 40000,
-    "Executive Room": 45000,
-    "Deluxe Room": 50000,
-    "Deluxe Room (2 Beds)": 55000,
+    # fix80: the December 2026 tariff from the front desk. These are the room-only
+    # rates, with VAT and consumption tax already inside them, exactly as the
+    # CURRENT TARIFF sheet shows (Standard 50,000 / Executive 55,000 / Deluxe 60,000).
+    "Standard Room": 50000,
+    "Executive Room": 55000,
+    "Deluxe Room": 60000,
+    "Deluxe Room (2 Beds)": 60000,
 }
 
 # --- How many of each room type the hotel actually has (fix57) ---
@@ -405,6 +408,10 @@ def init_db():
         conn.execute("ALTER TABLE bookings ADD COLUMN pay_reference TEXT")
     if "paid_at" not in cols:
         conn.execute("ALTER TABLE bookings ADD COLUMN paid_at TEXT")
+    # fix80: keep the amount the guest was quoted at booking time, so a later
+    # rate change can never alter what an older booking owes.
+    if "total_amount" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN total_amount INTEGER")
 
     # --- Food orders table (room service) ---
     conn.execute(
@@ -781,12 +788,21 @@ def book():
             flash("Sorry, all our {} rooms are taken for those dates. Please choose another room or different dates.".format(plain), "error")
             return render_template("book.html", form=request.form, preselect="")
 
+        # fix80: price the booking now and store it. From here on this guest owes
+        # this figure, whatever the tariff changes to before they pay.
+        try:
+            _nights = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+        except ValueError:
+            _nights = 0
+        _nights = max(_nights, 1)
+        _quoted_total = ROOM_PRICES.get(room_type, 0) * _nights
+
         # Save the booking into the database.
         cur = conn.execute(
             """
             INSERT INTO bookings
-                (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
+                (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no, total_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?)
             """,
             (
                 name,
@@ -799,6 +815,7 @@ def book():
                 special,
                 datetime.now().strftime("%Y-%m-%d %H:%M"),
                 room_no,
+                _quoted_total,
             ),
         )
         booking_id = cur.lastrowid
@@ -918,6 +935,22 @@ def nights_between(check_in, check_out):
     return n if n > 0 else 0
 
 
+def booking_total(row):
+    """fix80: the amount this booking was made at, not today's tariff.
+
+    Rows saved before the amount was stored fall back to the current prices
+    rather than showing a blank.
+    """
+    try:
+        stored = row["total_amount"]
+    except (KeyError, IndexError):
+        stored = None
+    if stored:
+        return int(stored)
+    nights = max(nights_between(row["check_in"], row["check_out"]), 1)
+    return ROOM_PRICES.get(row["room_type"], 0) * nights
+
+
 def mark_booking_paid(ticket_id, reference):
     """Mark a booking as paid. Called by the callback AND the webhook, so it has
     to be harmless if it happens twice."""
@@ -944,7 +977,7 @@ def mark_booking_paid(ticket_id, reference):
     # fix72: tell the guest their booking is paid, and send the hotel a copy so
     # reception can see it without opening the admin page.
     nights = nights_between(row["check_in"], row["check_out"])
-    total = ROOM_PRICES.get(row["room_type"], 0) * max(nights, 1)
+    total = booking_total(row)
     receipt = (
         "Hello {name},\n\n"
         "Payment received - your booking is CONFIRMED.\n\n"
@@ -1000,7 +1033,7 @@ def pay(ticket_id):
         return redirect(url_for("ticket"))
 
     nights = nights_between(booking["check_in"], booking["check_out"])
-    amount = ROOM_PRICES.get(booking["room_type"], 0) * max(nights, 1)
+    amount = booking_total(booking)
     email = (booking["email"] or "").strip()
 
     if request.method == "POST":
@@ -1050,8 +1083,7 @@ def payment_callback():
     ok, data = paystack_request("/transaction/verify/" + reference, method="GET")
     info = data.get("data") or {}
     if ok and data.get("status") and info.get("status") == "success":
-        expected = ROOM_PRICES.get(booking["room_type"], 0) * max(
-            nights_between(booking["check_in"], booking["check_out"]), 1)
+        expected = booking_total(booking)
         paid = int(info.get("amount") or 0) // 100
         if paid < expected:
             app.logger.error("Paystack amount mismatch on %s: paid %s expected %s",
@@ -1122,7 +1154,7 @@ def ticket():
             # fix76: a guest who opens their ticket again can still pay online,
             # so the button must live here too, not only on the success page.
             nights = nights_between(b["check_in"], b["check_out"])
-            pay_amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 1)
+            pay_amount = booking_total(b)
             still_pending = (b["status"] or "").lower() in ("pending", "", "holding", "upcoming")
             return render_template("ticket.html", b=b, status_class=cls, status_label=label,
                                    nights=nights, pay_amount=pay_amount,
@@ -1414,7 +1446,7 @@ def admin():
                 nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
             except (ValueError, TypeError):
                 nights = 0
-            revenue += ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+            revenue += booking_total(b)
 
     # --- Today's arrivals: due to check in today, not yet cancelled ---
     today_str = today.isoformat()
@@ -1487,7 +1519,7 @@ def admin_confirm(booking_id):
             nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
         except (ValueError, TypeError):
             nights = 0
-        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+        amount = booking_total(b)
         log_activity("Booking", "Payment Confirmed", b["ticket_id"],
                      "{} marked as Paid - {} ({} nights x {}) = {}".format(
                          b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
@@ -1588,7 +1620,7 @@ def admin_booking_action(booking_id):
             nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
         except (ValueError, TypeError):
             nights = 0
-        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0)
+        amount = booking_total(b)
         receipt = build_receipt(b, max(nights, 0), amount)
         if b["email"]:
             send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
@@ -1792,7 +1824,7 @@ def admin_bookings_csv():
             nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
         except (ValueError, TypeError):
             nights = 0
-        amount = ROOM_PRICES.get(b["room_type"], 0) * max(nights, 0) if b["status"] != "Pending" else 0
+        amount = booking_total(b) if b["status"] != "Pending" else 0
         writer.writerow([
             b["ticket_id"], b["name"], b["phone"], b["email"], b["room_type"],
             b["room_no"], b["check_in"], b["check_out"], max(nights, 0), b["guests"],

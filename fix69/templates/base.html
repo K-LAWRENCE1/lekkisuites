@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Lekki Suites | Luxury Hotel in Lekki, Lagos{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=29) }}">
+
+    <!-- PWA (fix36): lets guests install Lekki Suites on their home screen -->
+    {% block manifest %}<link rel="manifest" href="/manifest.webmanifest">{% endblock %}
+    <meta name="theme-color" content="#0f1c2e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{% block app_title %}Lekki Suites{% endblock %}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='icons/favicon-64.png') }}">
+</head>
+<body>
+
+    <!-- Install bar (fix38): shows in every browser, including WhatsApp / Instagram -->
+    <div id="pwa-bar" style="display:none;background:#0f1c2e;color:#f9f7f2;padding:10px 14px;font-family:Inter,system-ui,sans-serif;font-size:13px;line-height:1.35;border-bottom:2px solid #c9a227;">
+        <div style="display:flex;align-items:center;gap:10px;max-width:1100px;margin:0 auto;">
+            <img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="" width="30" height="30" style="border-radius:7px;flex:0 0 auto;">
+            <div style="flex:1;min-width:0;">
+                <strong style="display:block;font-size:13.5px;color:#c9a227;">Get the Lekki Suites app</strong>
+                <span id="pwa-bar-text">Add our icon to your home screen — opens like an app.</span>
+            </div>
+            <button id="pwa-bar-btn" type="button" style="background:#c9a227;color:#0f1c2e;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:12.5px;white-space:nowrap;cursor:pointer;">Add to Home Screen</button>
+            <button id="pwa-bar-close" type="button" aria-label="Dismiss" style="background:transparent;border:none;color:#9aa3b2;font-size:20px;line-height:1;padding:2px 4px;cursor:pointer;">&times;</button>
+        </div>
+    </div>
+
+    <!-- Install help sheet (fix38): device-specific steps, opened by the bar button -->
+    <div id="pwa-modal" style="display:none;position:fixed;inset:0;background:rgba(4,10,18,.62);z-index:10000;padding:18px;overflow:auto;">
+        <div style="max-width:420px;margin:32px auto;background:#ffffff;border-radius:16px;padding:22px 20px;font-family:Inter,system-ui,sans-serif;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.35);">
+            <button id="pwa-modal-x" type="button" aria-label="Close" style="position:absolute;top:10px;right:12px;background:transparent;border:none;font-size:24px;line-height:1;color:#8a8a93;cursor:pointer;">&times;</button>
+            <h3 style="margin:0 0 6px;font-size:17px;color:#0f1c2e;">Add Lekki Suites to your phone</h3>
+            <p id="pwa-modal-lead" style="margin:0 0 14px;font-size:13px;color:#6b6b76;line-height:1.45;">It opens like an app — full screen, no browser bar.</p>
+            <div id="pwa-modal-body" style="font-size:13.5px;color:#333;line-height:1.55;"></div>
+            <div style="margin-top:16px;display:flex;gap:8px;">
+                <button id="pwa-modal-copy" type="button" style="flex:1;background:#f1f1f5;color:#0f1c2e;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;">Copy website link</button>
+                <button id="pwa-modal-close" type="button" style="flex:1;background:#0f1c2e;color:#f9f7f2;border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== NAVBAR ===== -->
+    <header class="navbar">
+        <div class="nav-container">
+            <a href="{{ url_for('home') }}" class="logo"><img src="{{ url_for('static', filename='logo.png') }}" alt="Lekki Suites" class="logo-img"></a>
+            <nav class="nav-links">
+                <a href="{{ url_for('home') }}">Home</a>
+                <a href="{{ url_for('rooms') }}">Rooms</a>
+                <a href="{{ url_for('amenities') }}">Amenities</a>
+                <a href="{{ url_for('dining') }}">Dining</a>
+                <a href="{{ url_for('contact') }}">Contact</a>
+            </nav>
+            <div class="nav-actions">
+                <a href="{{ url_for('dining') }}" class="btn-food">Order Food</a>
+                <a href="{{ url_for('book') }}" class="btn-book">Book Now</a>
+            </div>
+        </div>
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="footer">
+        <div class="container footer-grid">
+            <div class="footer-brand">
+                <a href="{{ url_for('home') }}"><img src="{{ url_for('static', filename='logo.png') }}" alt="Lekki Suites" class="footer-logo"></a>
+                <p>Luxury &amp; comfort in the heart of Lekki, Lagos.</p>
+            </div>
+            <div>
+                <h4>Quick Links</h4>
+                <a href="{{ url_for('home') }}">Home</a><br>
+                <a href="{{ url_for('rooms') }}">Rooms</a><br>
+                <a href="{{ url_for('amenities') }}">Amenities</a><br>
+                <a href="{{ url_for('dining') }}">Dining</a><br>
+                <a href="{{ url_for('ticket') }}">Check Ticket</a><br>
+                <a href="{{ url_for('terms') }}">Booking Policy</a><br>
+                <a href="{{ url_for('privacy') }}">Privacy Policy</a><br>
+                <a href="{{ url_for('contact') }}">Contact</a>
+            </div>
+            <div>
+                <h4>Contact</h4>
+                <!-- fix39: every contact detail is now tappable on a phone -->
+                <p class="footer-contact">
+                    <a href="tel:{{ hotel_phone_tel }}">&#128222; {{ hotel_phone_display }}</a><br>
+                    <a href="https://wa.me/{{ hotel_whatsapp }}" target="_blank" rel="noopener">&#128172; Chat on WhatsApp</a><br>
+                    <a href="mailto:{{ hotel_email }}">&#9993; {{ hotel_email }}</a><br>
+                    <a href="https://www.google.com/maps/search/?api=1&amp;query=Lekki%20Suites%201%20Kayode%20Otitoju%20Lekki%20Phase%201%20Lagos" target="_blank" rel="noopener">&#128205; 1 Kayode Otitoju, Lekki Phase 1, Lagos</a>
+                </p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Lekki Suites. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- ===== WHATSAPP FLOATING BUBBLE (draggable) ===== -->
+    <div id="wa-bubble" class="wa-bubble" role="link" tabindex="0" aria-label="Chat with us on WhatsApp">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.149-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    </div>
+    <script>
+        (function () {
+            var wa = document.getElementById('wa-bubble');
+            if (!wa) return;
+
+            var KEY = 'ls_wa_pos';
+            var down = false, moved = false;
+            var startX = 0, startY = 0, offX = 0, offY = 0, lastX = 0, lastY = 0;
+
+            function place(x, y) {
+                var w = wa.offsetWidth, h = wa.offsetHeight;
+                x = Math.max(6, Math.min(window.innerWidth - w - 6, x));
+                y = Math.max(6, Math.min(window.innerHeight - h - 6, y));
+                wa.style.left = x + 'px';
+                wa.style.top = y + 'px';
+                wa.style.right = 'auto';
+                wa.style.bottom = 'auto';
+                return [x, y];
+            }
+
+            // Put it back where the guest dropped it last time.
+            try {
+                var saved = (localStorage.getItem(KEY) || '').split(',');
+                if (saved.length === 2 && !isNaN(+saved[0]) && !isNaN(+saved[1])) {
+                    place(+saved[0], +saved[1]);
+                }
+            } catch (_) {}
+
+            function openChat() {
+                window.open('https://wa.me/2348092299428', '_blank');
+            }
+
+            wa.addEventListener('pointerdown', function (e) {
+                down = true; moved = false;
+                startX = e.clientX; startY = e.clientY;
+                var r = wa.getBoundingClientRect();
+                offX = e.clientX - r.left;
+                offY = e.clientY - r.top;
+                lastX = r.left; lastY = r.top;
+                wa.style.transition = 'none';
+                try { wa.setPointerCapture(e.pointerId); } catch (_) {}
+                e.preventDefault();
+            }, { passive: false });
+
+            wa.addEventListener('pointermove', function (e) {
+                if (!down) return;
+                if (!moved && (Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY)) > 6) moved = true;
+                if (!moved) return;
+                var p = place(e.clientX - offX, e.clientY - offY);
+                lastX = p[0]; lastY = p[1];
+                e.preventDefault();
+            }, { passive: false });
+
+            function end(e) {
+                if (!down) return;
+                down = false;
+                wa.style.transition = '';
+                try { wa.releasePointerCapture(e.pointerId); } catch (_) {}
+                if (moved) {
+                    try { localStorage.setItem(KEY, Math.round(lastX) + ',' + Math.round(lastY)); } catch (_) {}
+                } else {
+                    openChat();
+                }
+            }
+
+            wa.addEventListener('pointerup', end);
+            wa.addEventListener('pointercancel', function () {
+                down = false;
+                wa.style.transition = '';
+            });
+            wa.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChat(); }
+            });
+
+            // Stay on screen when the phone is turned.
+            window.addEventListener('resize', function () {
+                if (!wa.style.left) return;
+                var r = wa.getBoundingClientRect();
+                place(r.left, r.top);
+            });
+        })();
+    </script>
+
+    <!-- PWA (fix36 / fix38): service worker + universal install bar with per-device help -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/sw.js').catch(function () {});
+            });
+        }
+
+        (function () {
+            var bar = document.getElementById('pwa-bar');
+            var barText = document.getElementById('pwa-bar-text');
+            var btn = document.getElementById('pwa-bar-btn');
+            var closeBtn = document.getElementById('pwa-bar-close');
+            var modal = document.getElementById('pwa-modal');
+            var modalBody = document.getElementById('pwa-modal-body');
+            var modalLead = document.getElementById('pwa-modal-lead');
+            if (!bar || !modal) return;
+
+            // Already running as an installed app? Then nothing to offer.
+            var standalone = window.matchMedia('(display-mode: standalone)').matches ||
+                             window.navigator.standalone === true;
+            if (standalone) return;
+
+            // Guest dismissed it? Stay quiet for 30 days.
+            try {
+                var closedAt = parseInt(localStorage.getItem('ls_pwa_bar_closed') || '0', 10);
+                if (closedAt && (Date.now() - closedAt) < 30 * 24 * 60 * 60 * 1000) return;
+            } catch (e) {}
+
+            var ua = navigator.userAgent || '';
+            var isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.indexOf('Mac') > -1 && 'ontouchend' in document);
+            var isAndroid = /Android/.test(ua);
+            // WhatsApp, Instagram, Facebook, Messenger, TikTok, Snapchat in-app viewers.
+            var inApp = /(FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|Snapchat|TikTok|musical_ly|MicroMessenger|Pinterest)/i.test(ua) ||
+                        // iOS in-app browsers hide the "Safari" token.
+                        (isIOS && !/Safari/.test(ua));
+            var deferredPrompt = null;
+
+            function hideBar() { bar.style.display = 'none'; }
+            function openModal(html, lead) {
+                modalBody.innerHTML = html;
+                modalLead.textContent = lead;
+                modal.style.display = 'block';
+            }
+            function closeModal() { modal.style.display = 'none'; }
+            function steps(items) {
+                return '<ol style="margin:0;padding-left:20px;">' +
+                    items.map(function (t) { return '<li style="margin-bottom:9px;">' + t + '</li>'; }).join('') +
+                    '</ol>';
+            }
+
+            // On Android Chrome this fires when a real one-tap install is possible.
+            window.addEventListener('beforeinstallprompt', function (e) {
+                e.preventDefault();
+                deferredPrompt = e;
+            });
+            window.addEventListener('appinstalled', function () { hideBar(); closeModal(); });
+
+            btn.addEventListener('click', function () {
+                // 1. Best case: the browser can genuinely install it in one tap.
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(function () {
+                        deferredPrompt = null;
+                        hideBar();
+                    });
+                    return;
+                }
+                // 2. Inside WhatsApp / Instagram / Facebook: those browsers cannot install anything.
+                if (inApp) {
+                    if (isIOS) {
+                        openModal(steps([
+                            'Tap the <strong>Share</strong> icon (the square with an arrow) at the bottom of the screen.',
+                            'Choose <strong>Open in Safari</strong>. If that option is missing, tap <strong>Copy website link</strong> below and paste it into Safari.',
+                            'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
+                        ]), 'WhatsApp\'s own browser cannot add apps to your phone. Open the site in Safari first, then it takes two taps.');
+                    } else {
+                        openModal(steps([
+                            'Tap the <strong>&#8942;</strong> menu at the top right of this screen.',
+                            'Choose <strong>Open in browser</strong> (Chrome).',
+                            'On the page that opens, tap <strong>Add to Home Screen</strong> in our bar again.'
+                        ]), 'WhatsApp\'s own browser cannot add apps to your phone. Open the site in Chrome first, then it takes two taps.');
+                    }
+                    return;
+                }
+                // 3. iPhone Safari: Apple has no install button, only the Share sheet.
+                if (isIOS) {
+                    openModal(steps([
+                        'Tap the <strong>Share</strong> button — the square with an arrow pointing up.',
+                        'Scroll down the list until you see <strong>Add to Home Screen</strong>.',
+                        'Tap it, then tap <strong>Add</strong> in the top corner.'
+                    ]), 'Safari only allows this through the Share menu — there is no install button on iPhone.');
+                    return;
+                }
+                // 4. Android browser without the install event.
+                if (isAndroid) {
+                    openModal(steps([
+                        'Tap the <strong>&#8942;</strong> menu in your browser (top right).',
+                        'Tap <strong>Install app</strong> or <strong>Add to Home screen</strong>.',
+                        'Confirm with <strong>Install</strong>.'
+                    ]), 'Two taps in your browser menu and the icon appears on your home screen.');
+                    return;
+                }
+                // 5. Desktop.
+                openModal(steps([
+                    'Look for the <strong>install icon</strong> in the address bar, or open the browser menu.',
+                    'Choose <strong>Install Lekki Suites</strong> / <strong>Install app</strong>.',
+                    'It opens in its own window like a desktop app.'
+                ]), 'Installing on a computer puts Lekki Suites in your dock or taskbar.');
+            });
+
+            closeBtn.addEventListener('click', function () {
+                try { localStorage.setItem('ls_pwa_bar_closed', String(Date.now())); } catch (e) {}
+                hideBar();
+            });
+
+            document.getElementById('pwa-modal-x').addEventListener('click', closeModal);
+            document.getElementById('pwa-modal-close').addEventListener('click', closeModal);
+            modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+
+            var copyBtn = document.getElementById('pwa-modal-copy');
+            copyBtn.addEventListener('click', function () {
+                var link = 'https://lekkisuites.com';
+                function done() { copyBtn.textContent = 'Link copied ✓'; setTimeout(function () { copyBtn.textContent = 'Copy website link'; }, 2000); }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(link).then(done).catch(done);
+                } else {
+                    var t = document.createElement('textarea');
+                    t.value = link; document.body.appendChild(t); t.select();
+                    try { document.execCommand('copy'); } catch (e) {}
+                    document.body.removeChild(t); done();
+                }
+            });
+
+            // The bar shows everywhere — WhatsApp, Instagram, desktop, all of it.
+            if (inApp) {
+                var browserName = isIOS ? 'Safari' : 'Chrome';
+                barText.innerHTML = 'Open this page in <strong>' + browserName + '</strong> first — this browser cannot add apps.';
+                btn.textContent = 'How to open in ' + browserName;
+            }
+            bar.style.display = 'block';
+        })();
+    </script>
+
+    <!-- fix50: after confirming / deleting in the admin, come back to the same
+         spot on the page instead of jumping to the top of the list. -->
+    <script>
+        (function () {
+            var KEY = 'ls_admin_scroll';
+            if (location.pathname.indexOf('/admin') !== 0) return;
+            document.addEventListener('submit', function () {
+                try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
+            });
+            window.addEventListener('load', function () {
+                try {
+                    var y = sessionStorage.getItem(KEY);
+                    if (y !== null) {
+                        sessionStorage.removeItem(KEY);
+                        window.scrollTo(0, parseInt(y, 10) || 0);
+                    }
+                } catch (e) {}
+            });
+        })();
+    </script>
+
+    {% block scripts %}{% endblock %}
+
+</body>
+</html>
