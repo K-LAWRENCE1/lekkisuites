@@ -67,6 +67,10 @@ def inject_contact_details():
         "hotel_phone_tel": HOTEL_PHONE_TEL,
         "hotel_whatsapp": HOTEL_WHATSAPP,
         "hotel_email": HOTEL_EMAIL or "reservations@lekkisuites.com",
+        # fix81: the pages that show a nightly rate read it from here, so there is
+        # only one price list in the whole site. Change ROOM_PRICES and every page
+        # follows - no more editing prices in two places and getting them out of step.
+        "room_prices": ROOM_PRICES,
     }
 
 

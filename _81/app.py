@@ -1,0 +1,2220 @@
+# Lekki Suites - Hotel Website
+# This is the main Flask application file.
+# Flask is a lightweight web framework that lets us serve web pages.
+
+import csv
+import hashlib
+import hmac
+import io
+import json
+import os
+import secrets
+import smtplib
+import time
+from email.message import EmailMessage
+from datetime import datetime, date
+from flask import (Flask, render_template, request, redirect, url_for, session, flash,
+                   Response, send_from_directory, make_response, jsonify)
+
+# Create the Flask application
+app = Flask(__name__)
+
+# fix67: the secret key signs the admin login cookie. If anybody knows it they can
+# fake a login without ever knowing the password, so it must not be written in the
+# code. Set SECRET_KEY in Render Environment. If it is missing we make a random one
+# at startup, which only means staff have to log in again after a restart.
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+
+
+# --- Database helper ---
+# db.py decides where data lives: the bookings.db file locally, or Postgres on Render
+# (it switches automatically as soon as a DATABASE_URL environment variable exists).
+from db import get_db
+
+
+# --- Payment details shown to guests on the confirmation page ---
+PAYMENT = {
+    "bank": "Moniepoint",
+    "account_name": "ONE LS HOTELS NIGERIA LIMITED - CHARLES NNAMDI JUNIOR EMODI",
+    "account_number": "5870568143",
+    "whatsapp": "2348092299428",
+}
+
+# --- Email notifications (fix28) ---
+# Set these in Render > Environment: SMTP_USER, SMTP_PASS, HOTEL_EMAIL
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+HOTEL_EMAIL = os.environ.get("HOTEL_EMAIL", "")
+# The address guests actually see in the "From:" line. With Brevo the SMTP login
+# (something@smtp-brevo.com) is NOT a real mailbox, so it must not be used here.
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or HOTEL_EMAIL or SMTP_USER
+
+# --- Contact details used across the site (fix39) ---
+# The footer/contact page now show these as tap-to-call / tap-to-mail links.
+# They follow the HOTEL_EMAIL env var, so when the reservations@ mailbox exists
+# you change one value in Render and every page updates by itself.
+HOTEL_PHONE_DISPLAY = "+234 809 229 9428"
+HOTEL_PHONE_TEL = "+2348092299428"
+HOTEL_WHATSAPP = "2348092299428"
+
+
+@app.context_processor
+def inject_contact_details():
+    return {
+        "hotel_phone_display": HOTEL_PHONE_DISPLAY,
+        "hotel_phone_tel": HOTEL_PHONE_TEL,
+        "hotel_whatsapp": HOTEL_WHATSAPP,
+        "hotel_email": HOTEL_EMAIL or "reservations@lekkisuites.com",
+        # fix81: the pages that show a nightly rate read it from here, so there is
+        # only one price list in the whole site. Change ROOM_PRICES and every page
+        # follows - no more editing prices in two places and getting them out of step.
+        "room_prices": ROOM_PRICES,
+    }
+
+
+def build_receipt(row, nights, amount):
+    """Receipt text for a paid booking."""
+    return (
+        "PAYMENT RECEIVED - Lekki Suites\n\n"
+        "Ticket:    {ticket}\n"
+        "Name:      {name}\n"
+        "Room:      {room}\n"
+        "Check-in:  {check_in}\n"
+        "Check-out: {check_out}\n"
+        "Guests:    {guests}\n"
+        "Nights:    {nights}\n"
+        "Amount:    NGN {total:,}\n"
+        "Status:    PAID\n\n"
+        "Show this ticket at reception on arrival.\n"
+        "1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+        "Phone/WhatsApp: +234 809 229 9428\n"
+        "https://lekkisuites.com/ticket"
+    ).format(
+        ticket=row["ticket_id"], name=row["name"], room=row["room_type"],
+        check_in=row["check_in"], check_out=row["check_out"],
+        guests=row["guests"], nights=nights, total=amount,
+    )
+
+
+def send_email(to_addr, subject, body):
+    """Send one plain-text email. Never raises - returns True/False."""
+    if not to_addr or not SMTP_USER or not SMTP_PASS:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["From"] = "Lekki Suites <{}>".format(EMAIL_FROM)
+        msg["Reply-To"] = EMAIL_FROM
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        msg.set_content(body)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        return True
+    except Exception as err:
+        app.logger.warning("Email to %s failed: %s", to_addr, err)
+        return False
+
+
+# --- Room prices (per night), used to estimate revenue ---
+ROOM_PRICES = {
+    # fix80: the December 2026 tariff from the front desk. These are the room-only
+    # rates, with VAT and consumption tax already inside them, exactly as the
+    # CURRENT TARIFF sheet shows (Standard 50,000 / Executive 55,000 / Deluxe 60,000).
+    "Standard Room": 50000,
+    "Executive Room": 55000,
+    "Deluxe Room": 60000,
+    "Deluxe Room (2 Beds)": 60000,
+}
+
+# --- How many of each room type the hotel actually has (fix57) ---
+# Every booking is checked against these numbers, so a room type that is
+# already taken for the chosen dates can never be booked twice.
+# >>> CHANGE THESE NUMBERS to the real room count at the hotel. <<<
+ROOM_UNITS = {
+    "Standard Room": ["401", "501", "103", "203", "205"],
+    "Executive Room": ["101", "301", "302", "303"],
+    "Deluxe Room": ["202", "403", "204"],
+    "Deluxe Room (2 Beds)": ["102", "402"],
+}
+
+ROOM_INVENTORY = {
+    "Standard Room": 5,      # 401, 501, 103, 203, 205
+    "Executive Room": 4,     # 101, 301, 302, 303
+    "Deluxe Room": 3,        # 202, 403, 204
+    "Deluxe Room (2 Beds)": 2,  # 102, 402
+}
+
+
+# fix66: a room is held only for the dates of the booking that holds it.
+# Nothing stays locked forever - once a booking's check-out date has passed, that
+# room is free again by itself. No cron job, and nobody has to remember to unlock.
+ACTIVE_BOOKING = ("(status IS NULL OR status NOT IN "
+                  "('Cancelled', 'No-show', 'Checked Out'))")
+
+
+def booking_holds(conn, check_in, check_out):
+    """room_no -> the booking holding that room for these dates.
+
+    Two bookings clash when one starts before the other ends and ends after it
+    starts. Cancelled, no-show and checked-out bookings hold nothing.
+    """
+    rows = conn.execute(
+        """
+        SELECT id, name, ticket_id, room_no, room_type, check_in, check_out, status
+        FROM bookings
+        WHERE deleted_at IS NULL
+          AND room_no IS NOT NULL AND room_no != ''
+          AND """ + ACTIVE_BOOKING + """
+          AND check_in < ?
+          AND check_out > ?
+        ORDER BY check_in
+        """,
+        (check_out, check_in),
+    ).fetchall()
+    holds = {}
+    for r in rows:
+        # One room can only be held once for the same dates - first booking wins.
+        holds.setdefault(r["room_no"], r)
+    return holds
+
+
+def room_is_free(conn, room_no, check_in, check_out, holds=None):
+    """Is this exact room free for these dates - not booked, not locked by staff?"""
+    if holds is None:
+        holds = booking_holds(conn, check_in, check_out)
+    if room_no in holds:
+        return False
+    r = conn.execute("SELECT locked FROM rooms WHERE room_no = ?", (room_no,)).fetchone()
+    return not (r and r["locked"])
+
+
+def pick_room(conn, room_type, check_in, check_out):
+    """Pick a real room number for a new booking, or None when the type is full.
+
+    This is what makes the site safe: the guest gets an actual room at the moment
+    they book, so the next guest cannot be handed the same one.
+    """
+    holds = booking_holds(conn, check_in, check_out)
+    for room_no in ROOM_UNITS.get(room_type, []):
+        if room_is_free(conn, room_no, check_in, check_out, holds):
+            return room_no
+    return None
+
+
+def rooms_free(conn, room_type, check_in, check_out):
+    """How many rooms of this type can still be sold for these dates."""
+    total = ROOM_INVENTORY.get(room_type)
+    if total is None:
+        return None
+
+    holds = booking_holds(conn, check_in, check_out)
+    units = ROOM_UNITS.get(room_type, [])
+
+    # Bookings made before fix66 have no room number - count one room each.
+    legacy = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM bookings
+        WHERE room_type = ?
+          AND deleted_at IS NULL
+          AND (room_no IS NULL OR room_no = '')
+          AND """ + ACTIVE_BOOKING + """
+          AND check_in < ?
+          AND check_out > ?
+        """,
+        (room_type, check_out, check_in),
+    ).fetchone()
+    legacy_n = legacy["n"] if legacy else 0
+
+    blocked = conn.execute(
+        """
+        SELECT COALESCE(SUM(rooms), 0) AS held FROM room_blocks
+        WHERE room_type = ?
+          AND check_in < ?
+          AND check_out > ?
+        """,
+        (room_type, check_out, check_in),
+    ).fetchone()
+    held_n = blocked["held"] if blocked else 0
+
+    free_units = 0
+    for room_no in units:
+        if room_is_free(conn, room_no, check_in, check_out, holds):
+            free_units += 1
+
+    return max(min(free_units, total) - legacy_n - held_n, 0)
+
+
+# ===== ROOM SERVICE MENU =====
+# Every dish the kitchen serves, with prices in Naira.
+# Each item gets a stable id so the cart can track it.
+MENU = [
+    {
+        "section": "Rice Dishes",
+        "category": "food",
+        "dishes": [
+            {"id": "jollof_turkey",   "name": "Jollof Rice & Turkey",      "price": 8000},
+            {"id": "white_beef",      "name": "White Rice & Beef",          "price": 4000},
+            {"id": "white_chicken",   "name": "White Rice & Chicken",       "price": 6000},
+            {"id": "white_goat",      "name": "White Rice & Goat Meat",     "price": 6500},
+            {"id": "white_turkey",     "name": "White Rice & Turkey",        "price": 8000},
+        ],
+    },
+    {
+        "section": "Pepper Soups",
+        "category": "food",
+        "dishes": [
+            {"id": "ps_beef",     "name": "Beef Pepper Soup",      "price": 3000},
+            {"id": "ps_chicken",  "name": "Chicken Pepper Soup",   "price": 5000},
+            {"id": "ps_goat",     "name": "Goat Meat Pepper Soup", "price": 5500},
+            {"id": "ps_assorted", "name": "Assorted Pepper Soup",  "price": 5000},
+            {"id": "ps_turkey",   "name": "Turkey Pepper Soup",    "price": 7000},
+        ],
+    },
+    {
+        "section": "Pepper Soup & Yam",
+        "category": "food",
+        "dishes": [
+            {"id": "psy_beef",     "name": "Beef Pepper Soup & Yam",       "price": 6000},
+            {"id": "psy_chicken",  "name": "Chicken Pepper Soup & Yam",    "price": 8000},
+            {"id": "psy_goat",     "name": "Goat Meat Pepper Soup & Yam",  "price": 8500},
+            {"id": "psy_assorted", "name": "Assorted Pepper Soup & Yam",   "price": 8000},
+            {"id": "psy_turkey",   "name": "Turkey Pepper Soup & Yam",     "price": 10000},
+        ],
+    },
+    {
+        "section": "Peppered Meat",
+        "category": "food",
+        "dishes": [
+            {"id": "pm_beef",     "name": "Pepper Beef",        "price": 2000},
+            {"id": "pm_chicken",  "name": "Pepper Chicken",    "price": 4000},
+            {"id": "pm_goat",     "name": "Pepper Goat Meat",  "price": 4500},
+            {"id": "pm_assorted", "name": "Pepper Assorted",   "price": 4000},
+            {"id": "pm_turkey",   "name": "Pepper Turkey",     "price": 6000},
+            {"id": "pm_yam",      "name": "Yam Pottage",         "price": 5000},
+        ],
+    },
+    {
+        "section": "Soups (served with Eba, Semo or Poundo)",
+        "category": "food",
+        "dishes": [
+            {"id": "obg_beef",     "name": "Ogbono with Beef",                "price": 6000},
+            {"id": "obg_chicken",  "name": "Ogbono with Chicken",             "price": 8000},
+            {"id": "obg_goat",     "name": "Ogbono with Goat Meat / Assorted","price": 8500},
+            {"id": "obg_turkey",   "name": "Ogbono with Turkey",              "price": 10000},
+            {"id": "eg_beef",      "name": "Egusi with Beef",                  "price": 6000},
+            {"id": "eg_chicken",   "name": "Egusi with Chicken",               "price": 8000},
+            {"id": "eg_goat",      "name": "Egusi with Goat Meat / Assorted",  "price": 8500},
+            {"id": "eg_turkey",    "name": "Egusi with Turkey",               "price": 10000},
+            {"id": "af_beef",      "name": "Afang with Beef",                   "price": 6500},
+            {"id": "af_chicken",   "name": "Afang with Chicken",                "price": 8500},
+            {"id": "af_goat",      "name": "Afang with Goat Meat",              "price": 9000},
+            {"id": "af_turkey",    "name": "Afang with Turkey",                 "price": 10500},
+            {"id": "swallow_only", "name": "Eba / Semo / Poundo only",          "price": 1000},
+        ],
+    },
+    {
+        "section": "Water",
+        "category": "bar",
+        "dishes": [
+            {"id": "w_table",  "name": "Table Water 75cl", "price": 500},
+        ],
+    },
+    {
+        "section": "Beer",
+        "category": "bar",
+        "dishes": [
+            {"id": "b_heineken",  "name": "Heineken",       "price": 3000},
+            {"id": "b_bigstout",  "name": "Big Stout",      "price": 3000},
+            {"id": "b_bud",       "name": "Budweiser",      "price": 3000},
+            {"id": "b_orijin",    "name": "Orijin Bitters", "price": 2500},
+            {"id": "b_guilder",   "name": "Guilder",        "price": 2500},
+            {"id": "b_goldberg",  "name": "Goldberg",       "price": 2000},
+            {"id": "b_trophy",    "name": "Trophy",         "price": 2000},
+            {"id": "b_smallstout","name": "Small Stout",    "price": 2000},
+            {"id": "b_smirnoff",  "name": "Smirnoff Ice",   "price": 2000},
+            {"id": "b_radler",    "name": "Star Radler",    "price": 2000},
+            {"id": "b_desperado", "name": "Desperado",      "price": 2000},
+            {"id": "b_star",      "name": "Star",           "price": 2000},
+            {"id": "b_33",        "name": '"33"',           "price": 2000},
+        ],
+    },
+    {
+        "section": "Energy Drinks",
+        "category": "bar",
+        "dishes": [
+            {"id": "e_monster", "name": "Monster", "price": 3000},
+            {"id": "e_redbull", "name": "Redbull",  "price": 4000},
+            {"id": "e_bullet",  "name": "Bullet",   "price": 3000},
+        ],
+    },
+    {
+        "section": "Juice",
+        "category": "bar",
+        "dishes": [
+            {"id": "j_chivita",  "name": "Chivita",  "price": 4000},
+            {"id": "j_exotic",   "name": "Exotic",   "price": 4000},
+            {"id": "j_hollandia","name": "Hollandia","price": 4500},
+        ],
+    },
+]
+
+# Quick lookup: id -> item dict, so the cart can find items fast.
+MENU_BY_ID = {}
+for _section in MENU:
+    for _item in _section["dishes"]:
+        MENU_BY_ID[_item["id"]] = _item
+
+
+def init_db():
+    """Create the bookings + food_orders tables if they do not exist, and upgrade old ones."""
+    conn = get_db()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            email TEXT,
+            room_type TEXT NOT NULL,
+            check_in TEXT NOT NULL,
+            check_out TEXT NOT NULL,
+            guests INTEGER NOT NULL,
+            requests TEXT,
+            booked_at TEXT NOT NULL,
+            ticket_id TEXT,
+            status TEXT DEFAULT 'Pending'
+        )
+        """
+    )
+    # Upgrade older databases: add new columns if they are missing.
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()}
+    if "ticket_id" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN ticket_id TEXT")
+    if "status" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'Pending'")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN notes TEXT")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN updated_at TEXT")
+    if "room_no" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
+    # fix40: deleting a booking now only HIDES it (deleted_at is set), so it can
+    # be restored from the History page and its ticket number is never reused.
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN deleted_at TEXT")
+    # fix71: Paystack. We keep the payment reference Paystack gave us, and when
+    # the money landed, so a booking can never be marked paid by guesswork.
+    if "pay_reference" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN pay_reference TEXT")
+    if "paid_at" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN paid_at TEXT")
+    # fix80: keep the amount the guest was quoted at booking time, so a later
+    # rate change can never alter what an older booking owes.
+    if "total_amount" not in cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN total_amount INTEGER")
+
+    # --- Food orders table (room service) ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS food_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_ref TEXT NOT NULL,
+            guest_name TEXT NOT NULL,
+            room_number TEXT NOT NULL,
+            phone TEXT,
+            items TEXT NOT NULL,
+            total INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            payment_status TEXT NOT NULL DEFAULT 'Pending',
+            order_status TEXT NOT NULL DEFAULT 'New',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    order_cols = {row["name"] for row in conn.execute("PRAGMA table_info(food_orders)").fetchall()}
+    if "deleted_at" not in order_cols:
+        conn.execute("ALTER TABLE food_orders ADD COLUMN deleted_at TEXT")
+
+    booking_cols = {row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()}
+    if "room_no" not in booking_cols:
+        conn.execute("ALTER TABLE bookings ADD COLUMN room_no TEXT")
+
+    # --- One row per physical room (fix60) ---
+    # The front desk locks a room the moment a guest takes it, and unlocks it
+    # when they leave. That is what the website reads before saying a room
+    # type is still available.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rooms (
+            room_no TEXT PRIMARY KEY,
+            room_type TEXT NOT NULL,
+            locked INTEGER NOT NULL DEFAULT 0,
+            note TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    for _rtype, _numbers in ROOM_UNITS.items():
+        for _no in _numbers:
+            conn.execute(
+                "INSERT OR IGNORE INTO rooms (room_no, room_type, locked) VALUES (?, ?, 0)",
+                (_no, _rtype),
+            )
+
+    # --- Held rooms (fix59) ---
+    # A room can be taken by a guest standing at the front desk, or pulled out
+    # for maintenance. Neither exists in the online bookings table, so without
+    # this the website happily overbooks a room that already has somebody in it.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS room_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_type TEXT NOT NULL,
+            rooms INTEGER NOT NULL DEFAULT 1,
+            check_in TEXT NOT NULL,
+            check_out TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT
+        )
+        """
+    )
+
+    # --- Activity log table (history of everything) ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            logged_at TEXT NOT NULL,
+            category TEXT NOT NULL,
+            event TEXT NOT NULL,
+            ref TEXT,
+            detail TEXT
+        )
+        """
+    )
+    # --- Small bookkeeping table so one-time fixes run only once ---
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_flags (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT
+        )
+        """
+    )
+
+    # fix66: rooms used to be locked by hand, with no dates attached, so a booked
+    # room stayed locked forever. A booking now holds its own room by date, so any
+    # old leftover lock is cleared once and does not come back.
+    done = conn.execute(
+        "SELECT name FROM schema_flags WHERE name = 'fix66_clear_old_locks'"
+    ).fetchone()
+    if not done:
+        conn.execute("UPDATE rooms SET locked = 0, updated_at = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"),))
+        conn.execute(
+            "INSERT INTO schema_flags (name, applied_at) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            ("fix66_clear_old_locks", datetime.now().strftime("%Y-%m-%d %H:%M")),
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# Create / upgrade the tables once when the app starts.
+init_db()
+
+
+def log_activity(category, event, ref, detail):
+    """Record an event in the activity log."""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO activity_log (logged_at, category, event, ref, detail) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().strftime("%Y-%m-%d %H:%M"), category, event, ref, detail),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def ticket_display(b):
+    """Work out how a ticket should look to a guest or the reception.
+
+    Returns (css_class, label):
+      - pending  -> booked but not paid yet
+      - upcoming -> paid, but check-in date has not arrived
+      - active   -> paid and currently within the stay dates
+      - expired  -> the check-out date has passed
+    """
+    status = b["status"] if b["status"] else "Pending"
+
+    # Reception-only states that override the date-based ones (fix32).
+    if status == "Cancelled":
+        return ("cancelled", "Cancelled")
+    if status == "No-show":
+        return ("noshow", "No-show")
+    if status == "Checked Out":
+        return ("expired", "Checked Out")
+
+    if status not in ("Confirmed", "Checked In"):
+        return ("pending", "Pending Payment")
+    if status == "Checked In":
+        return ("active", "Checked In")
+    try:
+        today = date.today()
+        ci = date.fromisoformat(b["check_in"])
+        co = date.fromisoformat(b["check_out"])
+    except (ValueError, TypeError):
+        return ("confirmed", "Confirmed")
+    if today > co:
+        return ("expired", "Expired")
+    if today < ci:
+        return ("upcoming", "Confirmed")
+    return ("active", "Valid")
+
+
+# ===== HELPERS FOR THE CART =====
+
+def get_cart():
+    """Return the current cart as a list of {id, name, price, qty}.
+
+    Robust against stale or corrupt session data from older versions.
+    """
+    raw = session.get("cart", {})
+    # If the session has bad data from an old version, wipe it.
+    if not isinstance(raw, dict):
+        session["cart"] = {}
+        session.modified = True
+        return []
+    out = []
+    for item_id, qty in raw.items():
+        if not isinstance(item_id, str):
+            continue
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            continue
+        if qty <= 0:
+            continue
+        item = MENU_BY_ID.get(item_id)
+        if item:
+            out.append({"id": item["id"], "name": item["name"], "price": item["price"], "qty": qty})
+    return out
+
+
+def get_cart_dict():
+    """Safely get the raw cart dict from session, fixing bad data."""
+    cart = session.get("cart", {})
+    if not isinstance(cart, dict):
+        cart = {}
+        session["cart"] = cart
+        session.modified = True
+    return cart
+
+
+def cart_total(cart=None):
+    """Sum up the total naira value of the cart."""
+    if cart is None:
+        cart = get_cart()
+    return sum(i["price"] * i["qty"] for i in cart)
+
+
+# --- Guest reviews shown on the home page (fix32) ---
+# Two knobs: the public Google rating, and real quotes once you have them.
+# REVIEWS stays empty until you paste genuine guest words in here — nothing
+# on this site invents a review.
+#   {"name": "Ada O.", "text": "Quiet, clean and the staff were kind.", "when": "Oct 2026"}
+GOOGLE_RATING = {
+    "score": 3.9,
+    "count": 238,
+    "url": "https://www.google.com/search?q=Lekki+Suites+Lekki+Phase+1+Lagos+reviews",
+}
+REVIEWS = []
+
+
+# The route "/" is the home page of the website.
+@app.route("/")
+def home():
+    return render_template("index.html", rating=GOOGLE_RATING, reviews=REVIEWS)
+
+
+# Rooms page - shows the rooms & suites.
+@app.route("/rooms")
+def rooms():
+    return render_template("rooms.html")
+
+
+# Amenities page - shows the hotel amenities.
+@app.route("/amenities")
+def amenities():
+    return render_template("amenities.html")
+
+
+# Dining page - now an interactive menu guests can order from.
+@app.route("/dining")
+def dining():
+    cart = get_cart()
+    return render_template("dining.html", menu=MENU, cart=cart, cart_total=cart_total(cart))
+
+
+# Contact page - shows address, phone, email and map.
+# ===== SEO: robots.txt + sitemap.xml (fix30) =====
+SITE_URL = "https://lekkisuites.com"
+
+@app.route("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: {}/sitemap.xml\n".format(SITE_URL)
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    pages = ["/", "/rooms", "/amenities", "/dining", "/contact", "/book", "/ticket",
+             "/terms", "/privacy", "/refund"]
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for page in pages:
+        parts.append("<url><loc>{}{}</loc><changefreq>weekly</changefreq></url>".format(SITE_URL, page))
+    parts.append("</urlset>")
+    return Response("\n".join(parts), mimetype="application/xml")
+
+
+# ===== Legal pages (fix68): booking policy + privacy =====
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
+# fix73: Paystack's activation review asks for a separate Refund and Cancellation
+# policy, not just a section inside the booking terms.
+@app.route("/refund")
+def refund():
+    return render_template("refund.html")
+
+
+# ===== PWA (fix36): manifest + service worker served from the site root =====
+# A service worker only controls pages at or below its own folder, so /sw.js
+# must live at "/" - that is why these two files are routed by hand instead of
+# being served straight from /static/.
+@app.route("/sw.js")
+def service_worker():
+    resp = make_response(send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript"))
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    resp = make_response(send_from_directory(
+        app.static_folder, "manifest.webmanifest", mimetype="application/manifest+json"))
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.route("/admin/manifest.webmanifest")
+def admin_manifest():
+    """fix57: a second manifest so staff can install the admin as its own app."""
+    resp = make_response(jsonify({
+        "name": "Lekki Suites Admin",
+        "short_name": "LS Admin",
+        "description": "Front desk dashboard for Lekki Suites: bookings, food orders, check-in.",
+        "id": "/admin",
+        "start_url": "/admin",
+        "scope": "/admin",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#0f1c2e",
+        "theme_color": "#0f1c2e",
+        "lang": "en-NG",
+        "icons": [
+            {"src": "/static/icons/admin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/static/icons/admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+        ],
+    }))
+    resp.mimetype = "application/manifest+json"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.route("/contact")
+def contact():
+    return render_template("contact.html")
+
+
+# ===== BOOKING SYSTEM =====
+
+# Booking form page.
+@app.route("/book", methods=["GET", "POST"])
+def book():
+    if request.method == "POST":
+        # Collect the data the guest typed in the form.
+        name = request.form.get("name", "").strip()
+        phone = request.form.get("phone", "").strip()
+        email = request.form.get("email", "").strip()
+        room_type = request.form.get("room_type", "").strip()
+        check_in = request.form.get("check_in", "").strip()
+        check_out = request.form.get("check_out", "").strip()
+        guests = request.form.get("guests", "1").strip()
+        special = request.form.get("requests", "").strip()
+
+        # Make sure the important fields are filled.
+        if not name or not phone or not room_type or not check_in or not check_out:
+            flash("Please fill in your name, phone, room type and dates.", "error")
+            return render_template("book.html", form=request.form, preselect="")
+
+        # fix70: the guest has to tick the policy box. The browser blocks it with
+        # "required", but that can be bypassed, so we check it here too.
+        if request.form.get("agree") != "yes":
+            flash("Please tick the box to accept the Booking Policy and Privacy Policy.", "error")
+            return render_template("book.html", form=request.form, preselect="")
+
+        # fix57: refuse the booking when every room of that type is already
+        # taken for those dates, instead of quietly overbooking the hotel.
+        conn = get_db()
+        # fix66: pick the actual room now, at the moment of booking. That is what
+        # holds it - the next guest cannot be given the same room for the same
+        # dates, whether they book online or walk in.
+        room_no = pick_room(conn, room_type, check_in, check_out)
+        if room_no is None:
+            conn.close()
+            plain = room_type.replace(" Room", "")
+            flash("Sorry, all our {} rooms are taken for those dates. Please choose another room or different dates.".format(plain), "error")
+            return render_template("book.html", form=request.form, preselect="")
+
+        # fix80: price the booking now and store it. From here on this guest owes
+        # this figure, whatever the tariff changes to before they pay.
+        try:
+            _nights = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+        except ValueError:
+            _nights = 0
+        _nights = max(_nights, 1)
+        _quoted_total = ROOM_PRICES.get(room_type, 0) * _nights
+
+        # Save the booking into the database.
+        cur = conn.execute(
+            """
+            INSERT INTO bookings
+                (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no, total_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, ?)
+            """,
+            (
+                name,
+                phone,
+                email,
+                room_type,
+                check_in,
+                check_out,
+                int(guests) if guests.isdigit() else 1,
+                special,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+                room_no,
+                _quoted_total,
+            ),
+        )
+        booking_id = cur.lastrowid
+        # Generate a unique ticket number, e.g. LK-0001
+        ticket_id = "LK-{:04d}".format(booking_id)
+        conn.execute("UPDATE bookings SET ticket_id = ? WHERE id = ?", (ticket_id, booking_id))
+        conn.commit()
+        conn.close()
+        log_activity("Booking", "New Booking", ticket_id,
+                     "{} booked {} for {} to {} ({} guests)".format(name, room_type, check_in, check_out, guests))
+
+        # Work out the number of nights and the total price, so the guest sees it on the ticket.
+        try:
+            nights = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+        except ValueError:
+            nights = 0
+        nights = max(nights, 1) if nights > 0 else 0
+        total_amount = ROOM_PRICES.get(room_type, 0) * nights
+
+        # Email the guest, plus a copy to the hotel as a backup of the booking.
+        message_body = (
+            "Hello {name},\n\n"
+            "We have received your booking request and it is now PENDING.\n\n"
+            "Our front desk will confirm availability and send you a second "
+            "message once your room is approved.\n\n"
+            "Ticket:    {ticket}\n"
+            "Room:      {room}\n"
+            "Check-in:  {check_in}\n"
+            "Check-out: {check_out}\n"
+            "Guests:    {guests}\n"
+            "Nights:    {nights}\n"
+            "Total:     NGN {total:,}\n\n"
+            "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+            "Phone/WhatsApp: +234 809 229 9428\n\n"
+            "Check your booking any time at https://lekkisuites.com/ticket "
+            "using ticket number {ticket}.\n\n"
+            "Please pay at the hotel on arrival.\n\n"
+            "Lekki Suites"
+        ).format(
+            name=name, ticket=ticket_id, room=room_type, check_in=check_in,
+            check_out=check_out, guests=guests, nights=nights, total=total_amount,
+        )
+        send_email(email, "Booking {} received (pending) - Lekki Suites".format(ticket_id), message_body)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "New booking {} - {} (needs confirming)".format(ticket_id, name), message_body)
+
+        # Send the guest to the confirmation page with their ticket + payment details.
+        return render_template(
+            "booking_success.html",
+            name=name,
+            room_type=room_type,
+            check_in=check_in,
+            check_out=check_out,
+            guests=guests,
+            phone=phone,
+            ticket_id=ticket_id,
+            payment=PAYMENT,
+            nights=nights,
+            total_amount=total_amount,
+            # fix71: only show the "Pay Online" button when Paystack is configured.
+            paystack_ready=paystack_enabled(),
+        )
+
+    # GET request - just show the empty form.
+    # If they clicked "Book Now" on a room, pre-select that room.
+    preselect = request.args.get("room", "")
+    return render_template("book.html", form=None, preselect=preselect)
+
+
+# ===== PAYSTACK ONLINE PAYMENT (fix71) =====
+# Set PAYSTACK_SECRET in the Render Environment. Until it is set, nothing here
+# runs and guests keep paying by bank transfer, exactly as before.
+PAYSTACK_SECRET = (os.environ.get("PAYSTACK_SECRET") or "").strip()
+PAYSTACK_BASE = "https://api.paystack.co"
+
+
+def paystack_enabled():
+    return bool(PAYSTACK_SECRET)
+
+
+def paystack_request(path, payload=None, method="POST"):
+    """Talk to Paystack. Returns (ok, data)."""
+    import urllib.request
+    import urllib.error
+
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(PAYSTACK_BASE + path, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + PAYSTACK_SECRET)
+    req.add_header("Content-Type", "application/json")
+    # fix77: Paystack sits behind Cloudflare, and Cloudflare answers the default
+    # "Python-urllib/x.y" signature with a plain-text 403 ("error code: 1010")
+    # instead of JSON. A normal User-Agent gets us real API responses again.
+    req.add_header("User-Agent", "LekkiSuites/1.0 (+https://lekkisuites.com)")
+    req.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return True, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        try:
+            return False, json.loads(err.read().decode("utf-8"))
+        except Exception:
+            try:
+                body = err.read().decode("utf-8", "replace").strip()[:200]
+            except Exception:
+                body = ""
+            return False, {"message": "Paystack returned error {}{}".format(
+                err.code, (" - " + body) if body else "")}
+    except Exception as err:
+        return False, {"message": str(err)}
+
+
+def nights_between(check_in, check_out):
+    try:
+        n = (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days
+    except (ValueError, TypeError):
+        return 0
+    return n if n > 0 else 0
+
+
+def booking_total(row):
+    """fix80: the amount this booking was made at, not today's tariff.
+
+    Rows saved before the amount was stored fall back to the current prices
+    rather than showing a blank.
+    """
+    try:
+        stored = row["total_amount"]
+    except (KeyError, IndexError):
+        stored = None
+    if stored:
+        return int(stored)
+    nights = max(nights_between(row["check_in"], row["check_out"]), 1)
+    return ROOM_PRICES.get(row["room_type"], 0) * nights
+
+
+def mark_booking_paid(ticket_id, reference):
+    """Mark a booking as paid. Called by the callback AND the webhook, so it has
+    to be harmless if it happens twice."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM bookings WHERE ticket_id = ?",
+        (ticket_id,),
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return False
+    if (row["status"] or "").lower() in ("confirmed", "paid"):
+        conn.close()
+        return True
+    conn.execute(
+        "UPDATE bookings SET status = 'Confirmed', pay_reference = ?, paid_at = ? WHERE ticket_id = ?",
+        (reference, datetime.now().strftime("%Y-%m-%d %H:%M"), ticket_id),
+    )
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Payment received", ticket_id,
+                 "{} paid online for {} (ref {})".format(row["name"], row["room_type"], reference))
+
+    # fix72: tell the guest their booking is paid, and send the hotel a copy so
+    # reception can see it without opening the admin page.
+    nights = nights_between(row["check_in"], row["check_out"])
+    total = booking_total(row)
+    receipt = (
+        "Hello {name},\n\n"
+        "Payment received - your booking is CONFIRMED.\n\n"
+        "Ticket:    {ticket}\n"
+        "Room:      {room}\n"
+        "Check-in:  {check_in}\n"
+        "Check-out: {check_out}\n"
+        "Nights:    {nights}\n"
+        "Paid:      NGN {total:,}\n"
+        "Reference: {ref}\n\n"
+        "Keep this email - the ticket number is what reception will ask for.\n"
+        "Your ticket: https://lekkisuites.com/ticket (enter {ticket})\n\n"
+        "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+        "Phone/WhatsApp: +234 809 229 9428\n\n"
+        "Thank you for choosing Lekki Suites.\n"
+    ).format(name=row["name"], ticket=ticket_id, room=row["room_type"],
+             check_in=row["check_in"], check_out=row["check_out"],
+             nights=nights, total=total, ref=reference)
+    if (row["email"] or "").strip():
+        send_email(row["email"], "Booking {} confirmed - paid - Lekki Suites".format(ticket_id), receipt)
+    if HOTEL_EMAIL:
+        send_email(HOTEL_EMAIL, "PAID booking {} - {} - NGN {:,}".format(ticket_id, row["name"], total), receipt)
+    return True
+
+
+def find_booking_by_reference(reference):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM bookings WHERE pay_reference = ? ORDER BY id DESC", (reference,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+@app.route("/pay/<ticket_id>", methods=["GET", "POST"])
+def pay(ticket_id):
+    """Start a Paystack payment for one ticket."""
+    ticket_id = (ticket_id or "").strip().upper()
+    if not paystack_enabled():
+        flash("Online payment is not switched on yet. Please use the bank transfer details on your ticket.", "error")
+        return redirect(url_for("ticket"))
+
+    conn = get_db()
+    booking = conn.execute(
+        "SELECT * FROM bookings WHERE ticket_id = ?", (ticket_id,)
+    ).fetchone()
+    conn.close()
+    if booking is None:
+        flash("We could not find that ticket number.", "error")
+        return redirect(url_for("ticket"))
+    if (booking["status"] or "").lower() in ("confirmed", "paid"):
+        flash("This booking is already paid. Nothing more to do.", "success")
+        return redirect(url_for("ticket"))
+
+    nights = nights_between(booking["check_in"], booking["check_out"])
+    amount = booking_total(booking)
+    email = (booking["email"] or "").strip()
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip() or email
+        if "@" not in email or "." not in email.split("@")[-1]:
+            flash("We need a valid email address so Paystack can send the receipt.", "error")
+            return render_template("pay.html", booking=booking, amount=amount,
+                                   nights=nights, email=email)
+        reference = "LS{}-{}".format(ticket_id.replace("LK-", ""), secrets.token_hex(6))
+        ok, data = paystack_request("/transaction/initialize", {
+            "email": email,
+            "amount": amount * 100,  # Paystack counts in kobo
+            "currency": "NGN",
+            "reference": reference,
+            "callback_url": url_for("payment_callback", _external=True),
+            "metadata": {"ticket": ticket_id, "guest": booking["name"]},
+        })
+        if ok and data.get("status") and data.get("data", {}).get("authorization_url"):
+            conn = get_db()
+            conn.execute("UPDATE bookings SET pay_reference = ?, email = ? WHERE ticket_id = ?",
+                         (reference, email, ticket_id))
+            conn.commit()
+            conn.close()
+            return redirect(data["data"]["authorization_url"])
+        flash("Paystack could not start the payment: {}".format(data.get("message", "unknown error")), "error")
+        return render_template("pay.html", booking=booking, amount=amount,
+                               nights=nights, email=email)
+
+    return render_template("pay.html", booking=booking, amount=amount,
+                           nights=nights, email=email)
+
+
+@app.route("/payment/callback")
+def payment_callback():
+    """Paystack sends the guest back here. We do not trust the browser: we ask
+    Paystack itself whether the money really moved."""
+    reference = (request.args.get("reference") or request.args.get("trxref") or "").strip()
+    if not reference:
+        flash("Payment was cancelled.", "error")
+        return redirect(url_for("ticket"))
+
+    booking = find_booking_by_reference(reference)
+    if booking is None:
+        flash("We could not match that payment to a booking. Please show your receipt at reception.", "error")
+        return redirect(url_for("ticket"))
+
+    ok, data = paystack_request("/transaction/verify/" + reference, method="GET")
+    info = data.get("data") or {}
+    if ok and data.get("status") and info.get("status") == "success":
+        expected = booking_total(booking)
+        paid = int(info.get("amount") or 0) // 100
+        if paid < expected:
+            app.logger.error("Paystack amount mismatch on %s: paid %s expected %s",
+                             booking["ticket_id"], paid, expected)
+            flash("The amount paid does not match this booking. Please contact reception.", "error")
+            return redirect(url_for("ticket"))
+        mark_booking_paid(booking["ticket_id"], reference)
+        return render_template("pay_success.html", ticket_id=booking["ticket_id"],
+                               amount=paid, name=booking["name"],
+                               room_type=booking["room_type"],
+                               check_in=booking["check_in"], check_out=booking["check_out"])
+
+    flash("That payment was not successful. You can try again or pay at the hotel.", "error")
+    return redirect(url_for("pay", ticket_id=booking["ticket_id"]))
+
+
+@app.route("/paystack/webhook", methods=["POST"])
+def paystack_webhook():
+    """Paystack calls this directly, whether or not the guest comes back to the
+    site. The signature proves the call really came from Paystack."""
+    if not paystack_enabled():
+        return ("", 200)
+    raw = request.get_data() or b""
+    signature = request.headers.get("x-paystack-signature", "")
+    expected = hmac.new(PAYSTACK_SECRET.encode("utf-8"), raw, hashlib.sha512).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return ("invalid signature", 401)
+
+    try:
+        event = json.loads(raw.decode("utf-8") or "{}")
+    except ValueError:
+        return ("", 200)
+
+    if event.get("event") == "charge.success":
+        info = event.get("data") or {}
+        reference = info.get("reference", "")
+        ticket_id = ((info.get("metadata") or {}).get("ticket") or "").strip()
+        if not ticket_id and reference:
+            booked = find_booking_by_reference(reference)
+            ticket_id = booked["ticket_id"] if booked else ""
+        if ticket_id:
+            mark_booking_paid(ticket_id, reference)
+    return ("", 200)
+
+
+# ===== CHECK TICKET (guest or reception verifies a booking) =====
+@app.route("/ticket", methods=["GET", "POST"])
+def ticket():
+    ref = ""
+    if request.method == "POST":
+        ref = request.form.get("ref", "").strip().upper()
+    else:
+        ref = request.args.get("ref", "").strip().upper()
+
+    if ref:
+        conn = get_db()
+        b = conn.execute("SELECT * FROM bookings WHERE UPPER(ticket_id) = ?", (ref,)).fetchone()
+        # fix52: a room-service order can be checked too, using its ORD- number.
+        o = None
+        if not b:
+            o = conn.execute(
+                "SELECT * FROM food_orders WHERE UPPER(order_ref) = ? AND deleted_at IS NULL",
+                (ref,),
+            ).fetchone()
+        conn.close()
+        if b:
+            cls, label = ticket_display(b)
+            # fix76: a guest who opens their ticket again can still pay online,
+            # so the button must live here too, not only on the success page.
+            nights = nights_between(b["check_in"], b["check_out"])
+            pay_amount = booking_total(b)
+            still_pending = (b["status"] or "").lower() in ("pending", "", "holding", "upcoming")
+            return render_template("ticket.html", b=b, status_class=cls, status_label=label,
+                                   nights=nights, pay_amount=pay_amount,
+                                   can_pay=paystack_enabled() and still_pending)
+        if o:
+            # fix54: order items may be stored as {id: qty} or as a list of
+            # entries, depending on which version created the order. Accept both.
+            try:
+                raw_items = json.loads(o["items"]) or {}
+            except Exception:
+                raw_items = {}
+            pairs = []
+            if isinstance(raw_items, dict):
+                pairs = list(raw_items.items())
+            elif isinstance(raw_items, list):
+                for entry in raw_items:
+                    if isinstance(entry, dict):
+                        iid = entry.get("id") or entry.get("item_id") or entry.get("name")
+                        qty = entry.get("qty") or entry.get("quantity") or 1
+                        pairs.append((iid, qty))
+                    elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                        pairs.append((entry[0], entry[1]))
+                    elif isinstance(entry, str):
+                        pairs.append((entry, 1))
+            lines = []
+            for item_id, qty in pairs:
+                dish = MENU_BY_ID.get(item_id) if isinstance(item_id, str) else None
+                if dish is None and isinstance(item_id, str):
+                    for _d in MENU_BY_ID.values():
+                        if _d["name"].lower() == item_id.lower():
+                            dish = _d
+                            break
+                name = dish["name"] if dish else str(item_id)
+                price = dish["price"] if dish else 0
+                try:
+                    qty = int(qty)
+                except Exception:
+                    qty = 1
+                lines.append({"name": name, "qty": qty, "total": price * qty})
+            return render_template("order_ticket.html", o=o, lines=lines)
+        flash("No booking or order found for that number.", "error")
+        return redirect(url_for("ticket"))
+
+    # No ticket number entered yet - show the search form.
+    return render_template("ticket.html", b=None)
+
+
+# ===== ROOM SERVICE CART =====
+
+# Add an item to the cart.
+@app.route("/cart/add", methods=["POST"])
+def cart_add():
+    item_id = request.form.get("item_id", "")
+    if item_id not in MENU_BY_ID:
+        flash("That item is not on the menu.", "error")
+        return redirect(url_for("dining"))
+
+    cart = get_cart_dict()
+    cart[item_id] = cart.get(item_id, 0) + 1
+    session["cart"] = cart
+    flash('"{}" added to your order.'.format(MENU_BY_ID[item_id]["name"]), "ok")
+    return redirect(url_for("dining", _anchor="menu"))
+
+
+# Remove one unit of an item from the cart.
+@app.route("/cart/remove", methods=["POST"])
+def cart_remove():
+    item_id = request.form.get("item_id", "")
+    cart = get_cart_dict()
+    if item_id in cart:
+        cart[item_id] -= 1
+        if cart[item_id] <= 0:
+            del cart[item_id]
+        session["cart"] = cart
+    return redirect(url_for("dining", _anchor="orderCart"))
+
+
+# Delete an item from the cart entirely.
+@app.route("/cart/delete", methods=["POST"])
+def cart_delete():
+    item_id = request.form.get("item_id", "")
+    cart = get_cart_dict()
+    cart.pop(item_id, None)
+    session["cart"] = cart
+    return redirect(url_for("dining", _anchor="orderCart"))
+
+
+# Empty the whole cart.
+@app.route("/cart/clear", methods=["POST"])
+def cart_clear():
+    session["cart"] = {}
+    return redirect(url_for("dining", _anchor="menu"))
+
+
+# ===== CHECKOUT (guest enters details + picks payment) =====
+
+@app.route("/checkout", methods=["GET", "POST"])
+def checkout():
+    cart = get_cart()
+
+    # If the cart is empty, send them back to the menu.
+    if not cart:
+        flash("Your order is empty. Add some items from the menu first.", "error")
+        return redirect(url_for("dining"))
+
+    if request.method == "POST":
+        guest_name = request.form.get("guest_name", "").strip()
+        room_number = request.form.get("room_number", "").strip()
+        phone = request.form.get("phone", "").strip()
+        payment_method = request.form.get("payment_method", "").strip()
+
+        if not guest_name or not room_number or payment_method not in ("transfer", "cash"):
+            flash("Please enter your name, room number and pick a payment method.", "error")
+            return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                                   form=request.form, payment=PAYMENT)
+
+        # fix70: same policy box as the booking form, checked on the server too.
+        if request.form.get("agree") != "yes":
+            flash("Please tick the box to accept the Booking Policy and Privacy Policy.", "error")
+            return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                                   form=request.form, payment=PAYMENT)
+
+        total = cart_total(cart)
+        # Save the items as JSON so we keep name + price + qty forever,
+        # even if the menu changes later.
+        items_json = json.dumps(cart, ensure_ascii=False)
+
+        if payment_method == "transfer":
+            pay_status = "Pending"
+        else:
+            pay_status = "Cash on Delivery"
+
+        conn = get_db()
+        cur = conn.execute(
+            """
+            INSERT INTO food_orders
+                (order_ref, guest_name, room_number, phone, items, total,
+                 payment_method, payment_status, order_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'New', ?)
+            """,
+            (
+                "",  # filled in after we know the id
+                guest_name,
+                room_number,
+                phone,
+                items_json,
+                total,
+                payment_method,
+                pay_status,
+                datetime.now().strftime("%Y-%m-%d %H:%M"),
+            ),
+        )
+        order_id = cur.lastrowid
+        order_ref = "ORD-{:04d}".format(order_id)
+        conn.execute("UPDATE food_orders SET order_ref = ? WHERE id = ?", (order_ref, order_id))
+        conn.commit()
+        conn.close()
+        log_activity("Food Order", "New Order", order_ref,
+                     "{} in Room {} placed an order - {} ({} items, total {})".format(
+                         guest_name, room_number, payment_method.title(),
+                         len(cart), total))
+
+        # Order placed -> empty the cart.
+        session["cart"] = {}
+
+        return render_template("order_success.html", order_ref=order_ref,
+                               guest_name=guest_name, room_number=room_number,
+                               phone=phone, cart=cart, total=total,
+                               payment_method=payment_method, payment=PAYMENT)
+
+    # GET - show the checkout form.
+    return render_template("checkout.html", cart=cart, cart_total=cart_total(cart),
+                           form=None, payment=PAYMENT)
+
+
+# ===== ADMIN PAGE (view all bookings + food orders) =====
+# Password protected so only hotel staff can see the bookings.
+# fix67: the password is no longer written in the code. It lives in Render, under
+# Environment, as ADMIN_PASSWORD. To change it, edit that value and save - no redeploy.
+# If the variable is missing nobody can log in, which is safer than an old default.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or ""
+if not ADMIN_PASSWORD:
+    print("fix67 WARNING: ADMIN_PASSWORD is not set in Render Environment - admin login will refuse everybody.")
+
+# fix67: slow down password guessing. After five wrong tries the same phone is
+# blocked for a minute. Everything is kept in the session, so it needs no database.
+MAX_FAILED_TRIES = 5
+LOCKOUT_SECONDS = 60
+
+
+@app.route("/admin", methods=["GET", "POST"])
+def admin():
+    if request.method == "POST":
+        # If this phone got the password wrong too many times, make it wait.
+        locked_until = session.get("admin_locked_until", 0)
+        if locked_until and time.time() < locked_until:
+            wait = int(locked_until - time.time()) + 1
+            flash("Too many wrong passwords. Wait %d seconds and try again." % wait, "error")
+            return redirect(url_for("admin"))
+
+        typed = request.form.get("password", "")
+        # compare_digest checks the password in constant time, so the response itself
+        # does not leak how much of the password was right.
+        if ADMIN_PASSWORD and secrets.compare_digest(typed, ADMIN_PASSWORD):
+            session["admin_logged_in"] = True
+            session.pop("admin_failed_tries", None)
+            session.pop("admin_locked_until", None)
+            return redirect(url_for("admin"))
+
+        tries = session.get("admin_failed_tries", 0) + 1
+        if tries >= MAX_FAILED_TRIES:
+            session["admin_failed_tries"] = 0
+            session["admin_locked_until"] = time.time() + LOCKOUT_SECONDS
+            flash("Too many wrong passwords. Wait a minute and try again.", "error")
+        else:
+            session["admin_failed_tries"] = tries
+            flash("Wrong password. Try again.", "error")
+        return redirect(url_for("admin"))
+
+    # If not logged in, show the login form.
+    if not session.get("admin_logged_in"):
+        return render_template("admin_login.html")
+
+    # Optional search (name, ticket number, phone) and status filter.
+    q = request.args.get("q", "").strip().lower()
+    view = request.args.get("view", "all")  # all | today | pending | paid | closed
+
+    conn = get_db()
+    bookings = conn.execute(
+        "SELECT * FROM bookings WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
+    food_orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
+    # fix42: how many deleted tickets/orders are sitting in History (badge on the History button).
+    history_count = (
+        conn.execute("SELECT COUNT(*) FROM bookings WHERE deleted_at IS NOT NULL").fetchone()[0]
+        + conn.execute("SELECT COUNT(*) FROM food_orders WHERE deleted_at IS NOT NULL").fetchone()[0]
+    )
+    conn.close()
+
+    # Count new food orders for the notification badge.
+    new_orders_count = sum(1 for o in food_orders if o["order_status"] == "New")
+
+    # --- Parse food orders so the history shows directly on this page ---
+    parsed_orders = []
+    for o in food_orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed_orders.append((o, items))
+
+    # Food order stats
+    o_new = sum(1 for o in food_orders if o["order_status"] == "New")
+    o_prep = sum(1 for o in food_orders if o["order_status"] == "Preparing")
+    o_ready = sum(1 for o in food_orders if o["order_status"] == "Ready")
+    o_delivered = sum(1 for o in food_orders if o["order_status"] == "Delivered")
+    food_revenue = sum(o["total"] for o in food_orders
+                       if o["payment_status"] in ("Confirmed", "Cash on Delivery"))
+    order_stats = {
+        "total": len(food_orders),
+        "new": o_new,
+        "preparing": o_prep,
+        "ready": o_ready,
+        "delivered": o_delivered,
+        "revenue": food_revenue,
+    }
+
+    # --- Compute dashboard stats ---
+    today = date.today()
+    total = len(bookings)
+    pending = confirmed = active = upcoming = expired = 0
+    revenue = 0
+    for b in bookings:
+        cls, label = ticket_display(b)
+        if cls == "pending":
+            pending += 1
+        elif cls == "active":
+            active += 1
+            confirmed += 1
+        elif cls == "upcoming":
+            upcoming += 1
+            confirmed += 1
+        elif cls == "expired":
+            expired += 1
+            confirmed += 1
+        # Revenue from paid (Confirmed) bookings.
+        if b["status"] == "Confirmed":
+            try:
+                nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+            except (ValueError, TypeError):
+                nights = 0
+            revenue += booking_total(b)
+
+    # --- Today's arrivals: due to check in today, not yet cancelled ---
+    today_str = today.isoformat()
+    arrivals = [b for b in bookings
+                if (b["check_in"] or "") == today_str
+                and (b["status"] or "Pending") not in ("Cancelled", "No-show", "Checked Out")]
+    departing = [b for b in bookings
+                 if (b["check_out"] or "") == today_str
+                 and (b["status"] or "") == "Checked In"]
+    in_house = sum(1 for b in bookings if (b["status"] or "") == "Checked In")
+
+    # --- Filter rows by search + the selected view tab ---
+    def matches_view(b):
+        st = b["status"] or "Pending"
+        if view == "today":
+            return (b["check_in"] or "") == today_str or st == "Checked In"
+        if view == "pending":
+            return st == "Pending"
+        if view == "paid":
+            return st in ("Confirmed", "Checked In")
+        if view == "closed":
+            return st in ("Checked Out", "Cancelled", "No-show")
+        return True
+
+    rows = []
+    for b in bookings:
+        if q and not (
+            q in (b["name"] or "").lower()
+            or q in (b["ticket_id"] or "").lower()
+            or q in (b["phone"] or "").lower()
+            or q in (b["room_no"] or "").lower()
+        ):
+            continue
+        if not matches_view(b):
+            continue
+        cls, label = ticket_display(b)
+        rows.append((b, cls, label))
+
+    stats = {
+        "total": total,
+        "pending": pending,
+        "confirmed": confirmed,
+        "active": active,
+        "upcoming": upcoming,
+        "expired": expired,
+        "revenue": revenue,
+        "arrivals": len(arrivals),
+        "in_house": in_house,
+        "departing": len(departing),
+    }
+    return render_template("admin.html", rows=rows, stats=stats, q=request.args.get("q", ""),
+                           view=view, arrivals=arrivals, departing=departing,
+                           new_orders_count=new_orders_count,
+                           history_count=history_count,
+                           today_label=today.strftime("%a %d %b"))
+
+
+# Mark a booking as paid / confirmed.
+@app.route("/admin/confirm/<int:booking_id>", methods=["POST"])
+def admin_confirm(booking_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    conn.execute("UPDATE bookings SET status = 'Confirmed' WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
+    if b:
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = booking_total(b)
+        log_activity("Booking", "Payment Confirmed", b["ticket_id"],
+                     "{} marked as Paid - {} ({} nights x {}) = {}".format(
+                         b["name"], b["room_type"], nights, ROOM_PRICES.get(b["room_type"], 0), amount))
+
+        # fix66: only older bookings arrive without a room number (new ones get one
+        # the moment the guest books). Give those a room here, by date, so the tile
+        # board and the website agree on what is actually taken.
+        if not b["room_no"]:
+            conn2 = get_db()
+            unit_no = pick_room(conn2, b["room_type"], b["check_in"], b["check_out"])
+            if unit_no:
+                conn2.execute("UPDATE bookings SET room_no = ? WHERE id = ?", (unit_no, booking_id))
+                conn2.commit()
+            conn2.close()
+
+        # fix57: pressing Confirm is what tells the guest their room is approved.
+        if (b["status"] or "Pending") == "Pending" and b["email"]:
+            confirmation = (
+                "Hello {name},\n\n"
+                "Good news - your booking at Lekki Suites is now CONFIRMED.\n\n"
+                "Ticket:    {ticket}\n"
+                "Room:      {room}\n"
+                "Check-in:  {check_in}\n"
+                "Check-out: {check_out}\n"
+                "Guests:    {guests}\n"
+                "Nights:    {nights}\n"
+                "Total:     NGN {total:,}\n\n"
+                "Address: 1 Kayode Otitoju Street, Lekki Phase 1, Lagos\n"
+                "Phone/WhatsApp: +234 809 229 9428\n\n"
+                "Show ticket number {ticket} at reception on arrival.\n\n"
+                "Lekki Suites"
+            ).format(
+                name=b["name"], ticket=b["ticket_id"], room=b["room_type"],
+                check_in=b["check_in"], check_out=b["check_out"],
+                guests=b["guests"], nights=max(nights, 0), total=amount,
+            )
+            send_email(b["email"], "Booking {} confirmed - Lekki Suites".format(b["ticket_id"]), confirmation)
+            if HOTEL_EMAIL:
+                send_email(HOTEL_EMAIL, "CONFIRMED {} - {}".format(b["ticket_id"], b["name"]), confirmation)
+
+        # Email the receipt to the guest (only if they were not already marked paid).
+        if b["status"] != "Confirmed":
+            receipt = build_receipt(b, max(nights, 0), amount)
+            if b["email"]:
+                send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+            if HOTEL_EMAIL:
+                send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
+    return back_to_admin()
+
+
+# ===== ADMIN: RECEPTION ACTIONS (fix32) =====
+
+# The whole point of a front desk is changing a booking's state as the guest
+# moves through it. One endpoint handles every move so the templates stay simple.
+BOOKING_ACTIONS = {
+    "paid": ("Confirmed", "Marked as Paid"),
+    "checkin": ("Checked In", "Checked In"),
+    "checkout": ("Checked Out", "Checked Out"),
+    "cancel": ("Cancelled", "Cancelled"),
+    "noshow": ("No-show", "Marked No-show"),
+    "reopen": ("Confirmed", "Reopened"),
+}
+
+
+@app.route("/admin/booking/<int:booking_id>/action", methods=["POST"])
+def admin_booking_action(booking_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    action = request.form.get("action", "")
+    if action not in BOOKING_ACTIONS:
+        flash("Unknown action.", "error")
+        return back_to_admin()
+
+    new_status, label = BOOKING_ACTIONS[action]
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not b:
+        conn.close()
+        return back_to_admin()
+
+    if action in ("cancel", "checkout", "noshow") and b["room_no"]:
+        conn.execute("UPDATE rooms SET locked = 0, updated_at = ? WHERE room_no = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"), b["room_no"]))
+    conn.execute(
+        "UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?",
+        (new_status, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+
+    log_activity("Booking", label, b["ticket_id"],
+                 "{} - {} -> {}".format(b["name"], b["status"] or "Pending", new_status))
+
+    # Marking paid still sends the receipt/confirmation emails.
+    if action == "paid" and (b["status"] or "") != "Confirmed":
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = booking_total(b)
+        receipt = build_receipt(b, max(nights, 0), amount)
+        if b["email"]:
+            send_email(b["email"], "Payment received - Ticket {}".format(b["ticket_id"]), receipt)
+        if HOTEL_EMAIL:
+            send_email(HOTEL_EMAIL, "PAID {} - {}".format(b["ticket_id"], b["name"]), receipt)
+
+    return back_to_admin()
+
+
+@app.route("/admin/booking/<int:booking_id>/delete", methods=["POST"])
+def admin_booking_delete(booking_id):
+    """fix40: move a booking to History instead of erasing it.
+
+    The row stays in the database, so the ticket number is never handed to
+    another guest, and reception can restore it if someone deletes it by mistake.
+    """
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not b:
+        conn.close()
+        return back_to_admin()
+
+    conn.execute("UPDATE bookings SET deleted_at = ? WHERE id = ?",
+                 (datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id))
+    conn.commit()
+    conn.close()
+
+    log_activity("Booking", "Deleted", b["ticket_id"],
+                 "{} - {} ({}) - moved to History".format(b["name"], b["room_type"], b["check_in"]))
+    flash("Ticket {} moved to History.".format(b["ticket_id"]), "success")
+    return back_to_admin()
+
+
+@app.route("/admin/booking/<int:booking_id>/restore", methods=["POST"])
+def admin_booking_restore(booking_id):
+    """fix40: bring a booking back out of History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if b:
+        conn.execute("UPDATE bookings SET deleted_at = NULL WHERE id = ?", (booking_id,))
+        conn.commit()
+        log_activity("Booking", "Restored", b["ticket_id"], b["name"])
+        flash("Ticket {} restored.".format(b["ticket_id"]), "success")
+    conn.close()
+    return back_to_admin("admin_history")
+
+
+@app.route("/admin/orders/<int:order_id>/delete", methods=["POST"])
+def admin_order_delete(order_id):
+    """fix40: move a food order to History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute("SELECT * FROM food_orders WHERE id = ?", (order_id,)).fetchone()
+    if o:
+        conn.execute("UPDATE food_orders SET deleted_at = ? WHERE id = ?",
+                     (datetime.now().strftime("%Y-%m-%d %H:%M"), order_id))
+        conn.commit()
+        log_activity("Food", "Deleted", o["order_ref"], "{} - moved to History".format(o["guest_name"]))
+        flash("Order {} moved to History.".format(o["order_ref"]), "success")
+    conn.close()
+    return back_to_admin("admin_orders")
+
+
+@app.route("/admin/orders/<int:order_id>/restore", methods=["POST"])
+def admin_order_restore(order_id):
+    """fix40: bring a food order back out of History."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute("SELECT * FROM food_orders WHERE id = ?", (order_id,)).fetchone()
+    if o:
+        conn.execute("UPDATE food_orders SET deleted_at = NULL WHERE id = ?", (order_id,))
+        conn.commit()
+        log_activity("Food", "Restored", o["order_ref"], o["guest_name"])
+        flash("Order {} restored.".format(o["order_ref"]), "success")
+    conn.close()
+    return back_to_admin("admin_history")
+
+
+@app.route("/admin/history/booking/<int:booking_id>/purge", methods=["POST"])
+def admin_booking_purge(booking_id):
+    """fix51: throw a deleted ticket away for good (only reachable from History).
+
+    The ticket number is still never reused - the sequence only moves forward.
+    """
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    b = conn.execute(
+        "SELECT * FROM bookings WHERE id = ? AND deleted_at IS NOT NULL",
+        (booking_id,)).fetchone()
+    if b is None:
+        conn.close()
+        flash("That ticket is not in History.", "error")
+        return back_to_admin("admin_history")
+
+    conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Purged", b["ticket_id"] or str(booking_id),
+                 "{} - deleted from History for good".format(b["name"]))
+    flash("Ticket {} deleted for good.".format(b["ticket_id"] or booking_id), "success")
+    return back_to_admin("admin_history")
+
+
+@app.route("/admin/history/order/<int:order_id>/purge", methods=["POST"])
+def admin_order_purge(order_id):
+    """fix51: throw a deleted food order away for good."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    o = conn.execute(
+        "SELECT * FROM food_orders WHERE id = ? AND deleted_at IS NOT NULL",
+        (order_id,)).fetchone()
+    if o is None:
+        conn.close()
+        flash("That order is not in History.", "error")
+        return back_to_admin("admin_history")
+
+    conn.execute("DELETE FROM food_orders WHERE id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Food", "Purged", o["order_ref"], "{} - deleted from History for good".format(o["guest_name"]))
+    flash("Order {} deleted for good.".format(o["order_ref"]), "success")
+    return back_to_admin("admin_history")
+
+
+@app.route("/admin/history")
+def admin_history():
+    """fix40: everything that was deleted, with a Restore button."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    bookings = conn.execute(
+        "SELECT * FROM bookings WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC").fetchall()
+    orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC").fetchall()
+    conn.close()
+
+    parsed_orders = []
+    for o in orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed_orders.append((o, items))
+
+    return render_template("admin_history.html", bookings=bookings, orders=parsed_orders,
+                           new_orders_count=0)
+
+
+@app.route("/admin/booking/<int:booking_id>/update", methods=["POST"])
+def admin_booking_update(booking_id):
+    """Save the reception notes and the physical room number for a booking."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    notes = (request.form.get("notes") or "").strip()[:1000]
+    room_no = (request.form.get("room_no") or "").strip()[:20]
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE bookings SET notes = ?, room_no = ?, updated_at = ? WHERE id = ?",
+        (notes, room_no, datetime.now().strftime("%Y-%m-%d %H:%M"), booking_id),
+    )
+    conn.commit()
+    conn.close()
+    log_activity("Booking", "Notes Updated", str(booking_id), notes[:120] or room_no)
+    return back_to_admin()
+
+
+@app.route("/admin/bookings.csv")
+def admin_bookings_csv():
+    """Download every booking as a spreadsheet file (backup before a redeploy)."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    bookings = conn.execute("SELECT * FROM bookings ORDER BY id DESC").fetchall()
+    conn.close()
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Ticket", "Name", "Phone", "Email", "Room Type", "Room No",
+                     "Check-in", "Check-out", "Nights", "Guests", "Status",
+                     "Amount (NGN)", "Booked At", "Notes"])
+    for b in bookings:
+        try:
+            nights = (date.fromisoformat(b["check_out"]) - date.fromisoformat(b["check_in"])).days
+        except (ValueError, TypeError):
+            nights = 0
+        amount = booking_total(b) if b["status"] != "Pending" else 0
+        writer.writerow([
+            b["ticket_id"], b["name"], b["phone"], b["email"], b["room_type"],
+            b["room_no"], b["check_in"], b["check_out"], max(nights, 0), b["guests"],
+            b["status"] or "Pending", amount, b["booked_at"], b["notes"],
+        ])
+
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=lekkisuites-bookings-{}.csv".format(stamp)},
+    )
+
+
+# ===== ADMIN: FOOD ORDERS =====
+
+@app.route("/admin/orders")
+def admin_orders():
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    orders = conn.execute(
+        "SELECT * FROM food_orders WHERE deleted_at IS NULL ORDER BY id DESC").fetchall()
+    conn.close()
+
+    # Count new orders for the notification badge.
+    new_count = sum(1 for o in orders if o["order_status"] == "New")
+    preparing_count = sum(1 for o in orders if o["order_status"] == "Preparing")
+    ready_count = sum(1 for o in orders if o["order_status"] == "Ready")
+    delivered_count = sum(1 for o in orders if o["order_status"] == "Delivered")
+    food_revenue = sum(o["total"] for o in orders if o["payment_status"] in ("Confirmed", "Cash on Delivery"))
+
+    order_stats = {
+        "total": len(orders),
+        "new": new_count,
+        "preparing": preparing_count,
+        "ready": ready_count,
+        "delivered": delivered_count,
+        "revenue": food_revenue,
+    }
+
+    parsed = []
+    for o in orders:
+        try:
+            items = json.loads(o["items"])
+        except (ValueError, TypeError):
+            items = []
+        parsed.append((o, items))
+
+    return render_template("admin_orders.html", orders=parsed, new_count=new_count,
+                           order_stats=order_stats)
+
+
+# Confirm a transfer payment for a food order.
+@app.route("/admin/orders/confirm/<int:order_id>", methods=["POST"])
+def admin_confirm_payment(order_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    conn.execute("UPDATE food_orders SET payment_status = 'Confirmed' WHERE id = ?", (order_id,))
+    conn.commit()
+    conn.close()
+    return back_to_admin()
+
+
+# Change the status of a food order (New -> Preparing -> Ready -> Delivered).
+@app.route("/admin/orders/status/<int:order_id>", methods=["POST"])
+def admin_order_status(order_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    status = request.form.get("status", "")
+    if status not in ("Preparing", "Ready", "Delivered"):
+        return back_to_admin()
+    conn = get_db()
+    conn.execute("UPDATE food_orders SET order_status = ? WHERE id = ?", (status, order_id))
+    conn.commit()
+    conn.close()
+    return back_to_admin()
+
+
+@app.route("/admin/walkin", methods=["GET", "POST"])
+def admin_walkin():
+    """fix59: record a guest who walked in, so the website can see the room is taken."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    if request.method == "POST":
+        kind = request.form.get("kind", "walkin")
+
+        if kind == "block":
+            room_type = request.form.get("room_type", "").strip()
+            rooms = request.form.get("rooms", "1").strip()
+            check_in = request.form.get("check_in", "").strip()
+            check_out = request.form.get("check_out", "").strip()
+            reason = request.form.get("reason", "").strip()
+            if not room_type or not check_in or not check_out:
+                flash("Pick a room type and both dates.", "error")
+            else:
+                conn = get_db()
+                conn.execute(
+                    "INSERT INTO room_blocks (room_type, rooms, check_in, check_out, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (room_type, int(rooms) if rooms.isdigit() else 1, check_in, check_out,
+                     reason, datetime.now().strftime("%Y-%m-%d %H:%M")),
+                )
+                conn.commit()
+                conn.close()
+                log_activity("Rooms", "Rooms Held", room_type,
+                             "{} room(s) held {} to {}".format(rooms, check_in, check_out))
+                flash("Rooms held. The website will no longer offer them for those dates.", "success")
+                return redirect(url_for("admin_walkin"))
+
+        else:
+            name = request.form.get("name", "").strip()
+            phone = request.form.get("phone", "").strip()
+            room_type = request.form.get("room_type", "").strip()
+            check_in = request.form.get("check_in", "").strip()
+            check_out = request.form.get("check_out", "").strip()
+            guests = request.form.get("guests", "1").strip()
+            if not name or not phone or not room_type or not check_in or not check_out:
+                flash("Please fill in name, phone, room type and dates.", "error")
+            else:
+                conn = get_db()
+                # fix66: a walk-in takes a real room number too, so the website
+                # cannot sell that same room for those same dates.
+                walkin_room = pick_room(conn, room_type, check_in, check_out)
+                if walkin_room is None:
+                    conn.close()
+                    flash("All {} rooms are already taken for those dates.".format(room_type), "error")
+                    return redirect(url_for("admin_walkin"))
+                cur = conn.execute(
+                    """
+                    INSERT INTO bookings
+                        (name, phone, email, room_type, check_in, check_out, guests, requests, booked_at, status, room_no)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Checked In', ?)
+                    """,
+                    (name, phone, request.form.get("email", "").strip(), room_type, check_in, check_out,
+                     int(guests) if guests.isdigit() else 1,
+                     "Walk-in at reception", datetime.now().strftime("%Y-%m-%d %H:%M"),
+                     walkin_room),
+                )
+                bid = cur.lastrowid
+                conn.execute("UPDATE bookings SET ticket_id = ? WHERE id = ?", ("LK-{:04d}".format(bid), bid))
+                conn.commit()
+                conn.close()
+                log_activity("Booking", "Walk-in Booking", "LK-{:04d}".format(bid),
+                             "{} checked in to {} until {}".format(name, room_type, check_out))
+                flash("Walk-in recorded. That room is now blocked on the website.", "success")
+                return redirect(url_for("admin_walkin"))
+
+    conn = get_db()
+    holds = conn.execute(
+        "SELECT * FROM room_blocks WHERE check_out >= ? ORDER BY check_in", (date.today().isoformat(),)
+    ).fetchall()
+    conn.close()
+    return render_template("admin_walkin.html", holds=holds,
+                           room_types=sorted(ROOM_INVENTORY.keys()),
+                           today=date.today().isoformat())
+
+
+@app.route("/admin/rooms")
+def admin_rooms():
+    """fix60: the room board. Tap a room to lock or free it."""
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM rooms ORDER BY room_type, room_no").fetchall()
+    today = date.today().isoformat()
+    # Every booking from today onwards, so a tile can say who is in it and until when.
+    holds = booking_holds(conn, today, "9999-12-31")
+    conn.close()
+
+    board = []
+    for rtype in sorted(ROOM_INVENTORY.keys()):
+        units = []
+        busy = 0
+        for r in [x for x in rows if x["room_type"] == rtype]:
+            b = holds.get(r["room_no"])
+            # A real booking outranks a hand lock: when a guest holds the room, that
+            # is what the tile must say, whatever else is set.
+            if b and b["check_in"] <= today < b["check_out"]:
+                state, label = "busy", "IN USE"
+                detail = "{} out {}".format(b["name"].split()[0], b["check_out"][5:])
+            elif b:
+                state, label = "busy", "BOOKED"
+                detail = "{} from {}".format(b["name"].split()[0], b["check_in"][5:])
+            elif r["locked"]:
+                state, label, detail = "locked", "LOCKED", "by staff"
+            else:
+                state, label, detail = "free", "free", ""
+            if state != "free":
+                busy += 1
+            units.append({
+                "room_no": r["room_no"],
+                "state": state,
+                "label": label,
+                "detail": detail,
+                "booking": bool(b),
+            })
+        board.append({
+            "type": rtype,
+            "units": units,
+            "busy": busy,
+            "total": len(units),
+        })
+    return render_template("admin_rooms.html", board=board, today=today)
+
+
+@app.route("/admin/rooms/<room_no>/toggle", methods=["POST"])
+def admin_room_toggle(room_no):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    r = conn.execute("SELECT * FROM rooms WHERE room_no = ?", (room_no,)).fetchone()
+    if not r:
+        conn.close()
+        return redirect(url_for("admin_rooms"))
+
+    # fix66: a room held by a real booking cannot be freed by tapping it - the
+    # guest is still coming. Cancel or check out that booking instead.
+    today = date.today().isoformat()
+    held = booking_holds(conn, today, "9999-12-31").get(room_no)
+    if held and not r["locked"]:
+        conn.close()
+        if held["check_in"] <= today < held["check_out"]:
+            flash("Room {} has a guest in it until {}. Check the booking out to free the room."
+                  .format(room_no, held["check_out"]), "error")
+        else:
+            flash("Room {} is booked from {} for {}. Cancel that booking to free the room."
+                  .format(room_no, held["check_in"], held["name"]), "error")
+        return redirect(url_for("admin_rooms"))
+
+    new = 0 if r["locked"] else 1
+    conn.execute(
+        "UPDATE rooms SET locked = ?, updated_at = ? WHERE room_no = ?",
+        (new, datetime.now().strftime("%Y-%m-%d %H:%M"), room_no),
+    )
+    conn.commit()
+    log_activity("Rooms", "Room Locked" if new else "Room Freed", room_no,
+                 "{} {} by reception".format(r["room_type"], "locked" if new else "freed"))
+    conn.close()
+    return redirect(url_for("admin_rooms"))
+
+
+@app.route("/admin/blocks/<int:block_id>/release", methods=["POST"])
+def admin_release_block(block_id):
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+    conn = get_db()
+    conn.execute("DELETE FROM room_blocks WHERE id = ?", (block_id,))
+    conn.commit()
+    conn.close()
+    log_activity("Rooms", "Rooms Released", str(block_id), "Held rooms released back to the website")
+    flash("Rooms released.", "success")
+    return redirect(url_for("admin_walkin"))
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.clear()
+    return back_to_admin()
+
+
+def back_to_admin(default_endpoint="admin", **kwargs):
+    """fix50: send staff back to the exact page they acted from.
+
+    Using the referring page keeps the tab (?view=), the search (?q=) and the
+    anchor intact instead of dumping them back at the top of the bookings list.
+    """
+    ref = request.referrer or ""
+    if ref.startswith(request.host_url):
+        return redirect(ref)
+    return redirect(url_for(default_endpoint, **kwargs))
+
+# --- fix48: temporary diagnostic -------------------------------------------
+# While we hunt a 500 on /admin, a logged-in staff member sees the real error
+# instead of Render's blank "Internal Server Error" page. Remove once fixed.
+from werkzeug.exceptions import HTTPException
+
+
+@app.errorhandler(Exception)
+def _admin_diagnostic(error):
+    if isinstance(error, HTTPException):
+        return error
+    # fix55: errors are logged for the Render log, never shown to visitors.
+    app.logger.error("500 on %s: %s", request.path, error, exc_info=True)
+    if not (request.path.startswith("/admin") and session.get("admin_logged_in")):
+        return "Internal Server Error", 500
+    import traceback
+    tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    return ("<pre style=\"padding:16px;font-size:12px;white-space:pre-wrap;"
+            "font-family:monospace;background:#fff;color:#111\">"
+            + tb.replace("&", "&amp;").replace("<", "&lt;") + "</pre>"), 500
+
+
+# ===== START FRESH (fix78) =====
+# wipe every booking and food order, then put the ticket counter back to 1 so
+# the next real guest gets LK-0001. Only reachable while logged into the admin.
+# The ticketing number is the database row id, so deleting rows alone is not
+# enough - the counter has to be reset as well, and that differs on SQLite
+# (a laptop) vs Postgres (Render).
+RESET_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start fresh - Lekki Suites admin</title>
+<style>
+body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0f1c33;color:#fff;
+     display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;color:#12203a;border-radius:16px;padding:26px;max-width:520px;width:100%}
+h1{font-size:20px;margin:0 0 12px}
+p{line-height:1.5;font-size:14px}
+.warn{background:#fff2f2;border:1px solid #f0b4b4;color:#8a1c1c;border-radius:10px;
+      padding:12px;font-size:14px;margin:14px 0}
+input{width:100%;padding:12px;border:1px solid #c8d0dc;border-radius:10px;font-size:15px;
+      box-sizing:border-box;margin:6px 0 14px}
+button{width:100%;padding:14px;border:0;border-radius:10px;background:#c8102e;color:#fff;
+       font-size:16px;font-weight:600;cursor:pointer}
+a{display:block;text-align:center;margin-top:14px;color:#12203a;font-size:14px}
+</style></head><body><div class="card">
+<h1>Start fresh</h1>
+<p>This deletes <strong>every booking</strong> and <strong>every food order</strong>, plus the
+activity history, then puts the ticket counter back to 1. The next booking becomes
+<strong>LK-0001</strong>.</p>
+<div class="warn">There is no undo. Right now the database holds <strong>COUNT_PLACEHOLDER
+booking(s)</strong>.</div>
+<form method="post">
+  <p style="margin:0">Type <strong>RESET</strong> to confirm:</p>
+  <input name="confirm" autocomplete="off" placeholder="RESET">
+  <p style="margin:0">Admin password:</p>
+  <input name="password" type="password" autocomplete="off" placeholder="Admin password">
+  <button type="submit">Delete everything and restart numbering</button>
+</form>
+<a href="/admin">Back to admin</a>
+</div></body></html>"""
+
+
+@app.route("/admin/reset", methods=["GET", "POST"])
+def admin_reset():
+    if not session.get("admin_logged_in"):
+        return redirect(url_for("admin"))
+
+    conn = get_db()
+    total = conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0]
+    conn.close()
+
+    if request.method == "POST":
+        if (request.form.get("confirm") or "").strip().upper() != "RESET":
+            flash("Type RESET in the box to confirm.", "error")
+            return redirect(url_for("admin_reset"))
+
+        # fix79: a second lock. Typing RESET is not enough - the admin password is
+        # required too, so a stray tap (or a guest poking at a reception screen)
+        # can never wipe the bookings.
+        typed_password = request.form.get("password", "")
+        if not ADMIN_PASSWORD or not secrets.compare_digest(typed_password, ADMIN_PASSWORD):
+            flash("Wrong admin password. Nothing was deleted.", "error")
+            return redirect(url_for("admin_reset"))
+
+        import db as _db
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM bookings")
+            conn.execute("DELETE FROM food_orders")
+            conn.execute("DELETE FROM activity_log")
+            conn.commit()
+            # Put the numbering back to 1 so the next booking is LK-0001.
+            try:
+                if getattr(_db, "DATABASE_URL", ""):
+                    conn.execute("SELECT setval(pg_get_serial_sequence('bookings', 'id'), 1, false)")
+                    conn.execute("SELECT setval(pg_get_serial_sequence('food_orders', 'id'), 1, false)")
+                else:
+                    conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('bookings', 'food_orders')")
+                conn.commit()
+            except Exception as err:
+                app.logger.warning("fix78: counter reset failed: %s", err)
+                flash("Bookings were cleared, but the ticket counter could not be reset: %s" % err, "error")
+                return redirect(url_for("admin"))
+        finally:
+            conn.close()
+
+        flash("Database cleared. The next booking will be LK-0001.", "success")
+        return redirect(url_for("admin"))
+
+    html = RESET_PAGE.replace("COUNT_PLACEHOLDER", str(total))
+    return Response(html, mimetype="text/html")
+
+
+# This lets us run the website by typing:  python app.py
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)

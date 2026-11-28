@@ -59,7 +59,8 @@
                         <label for="room_type">Room Type *</label>
                         <select id="room_type" name="room_type" required>
                             <option value="">-- Select a room --</option>
-                            {% for name, price in [('Standard Room', 40000), ('Executive Room', 45000), ('Deluxe Room', 50000), ('Deluxe Room (2 Beds)', 55000)] %}
+                            {# fix81: the rate shown here is the same one the booking is priced at. #}
+                            {% for name, price in room_prices.items() %}
                             <option value="{{ name }}" {{ 'selected' if (form and form.get('room_type') == name) or preselect == name else '' }}>
                                 {{ name }} &#8358;{{ '{:,}'.format(price) }}/night
                             </option>

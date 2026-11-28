@@ -14,14 +14,15 @@
         <div class="container">
             <div class="room-grid">
 
+                {# fix81: prices come from ROOM_PRICES in app.py, not from this page. #}
                 {% set rooms = [
-                    {'key': 'Standard Room', 'name': 'Standard Room', 'price': 40000,
+                    {'key': 'Standard Room', 'name': 'Standard Room',
                      'photos': ['standard-1.jpg', 'standard-2.jpg', 'standard-3.jpg', 'standard-4.jpg']},
-                    {'key': 'Executive Room', 'name': 'Executive Room', 'price': 45000,
+                    {'key': 'Executive Room', 'name': 'Executive Room',
                      'photos': ['executive-1.jpg', 'executive-2.jpg', 'executive-3.jpg', 'executive-4.jpg']},
-                    {'key': 'Deluxe Room', 'name': 'Deluxe Room', 'price': 50000,
+                    {'key': 'Deluxe Room', 'name': 'Deluxe Room',
                      'photos': ['deluxe-1.jpg', 'deluxe-2.jpg', 'deluxe-3.jpg', 'deluxe-4.jpg']},
-                    {'key': 'Deluxe Room (2 Beds)', 'name': 'Deluxe Room (2 Beds)', 'price': 55000,
+                    {'key': 'Deluxe Room (2 Beds)', 'name': 'Deluxe Room (2 Beds)',
                      'photos': ['deluxe2-1.jpg', 'deluxe2-2.jpg', 'deluxe2-3.jpg']}
                 ] %}
 
@@ -49,7 +50,7 @@
                             <li>Flat-screen TV</li>
                             <li>Breakfast Included</li>
                         </ul>
-                        <div class="room-price">&#8358; {{ '{:,}'.format(r.price) }}<span>/night</span></div>
+                        <div class="room-price">&#8358; {{ '{:,}'.format(room_prices.get(r.key, 0)) }}<span>/night</span></div>
                         <a href="{{ url_for('book', room=r.key) }}" class="btn-room">Book Now</a>
                     </div>
                 </div>
